@@ -359,21 +359,35 @@ func runAITexture(){
 }
 func minInt(a,b int)int{if a<b{return a};return b}
 
+func traceTexture(event string){
+ dir:=filepath.Join(os.TempDir(),"CAWForge-Diagnostics")
+ if err:=os.MkdirAll(dir,0755);err!=nil{return}
+ f,err:=os.OpenFile(filepath.Join(dir,"texture-events.log"),os.O_CREATE|os.O_WRONLY|os.O_APPEND,0644)
+ if err!=nil{return}
+ defer f.Close()
+ fmt.Fprintf(f,"%s %s\n",time.Now().Format(time.RFC3339Nano),event)
+}
 func startTexture(){
+ traceTexture("startTexture entered")
  if imagePath==""{alert("Import a reference photograph first.");return}
  if textureBusy{return}
  textureBusy=true
  set(203,"Generating 820 x 820 texture in background...")
  photo:=imagePath
  go func(){
-  dir:=filepath.Join(filepath.Dir(photo),"WWE_Morph_Exports")
+  home,_:=os.UserHomeDir()
+  if home==""{home=os.TempDir()}
+  dir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
   err:=os.MkdirAll(dir,0755)
   path:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png")
+  traceTexture("Texture generation started")
   if err==nil{err=generateTexture(photo,path)}
+  if err!=nil{traceTexture("Texture error: "+err.Error())}else{traceTexture("Texture generation completed")}
   if err==nil{_ = writeFacePrompt(path)}
   matchMu.Lock()
   if err!=nil{faceTextureStatus="Texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="Saved: "+path;faceTexturePreviewPath=path}
   matchMu.Unlock()
+  traceTexture("Posting texture completion event")
   postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
  }()
 }
@@ -833,9 +847,9 @@ case WM_COMMAND:id:=int(w&0xffff);switch {case id==402:themePicker=true;beginPic
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==506:launchLivePreview();case id==200:switchTab(0);case id==300:switchTab(2);case id==307:startGraphic();case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==506:launchLivePreview();case id==200:switchTab(0);case id==300:switchTab(2);case id==307:startGraphic();case id==202:traceTexture("Face Texture tab clicked");switchTab(1);traceTexture("Face Texture tab ready");case id==201:traceTexture("Generate Texture clicked");startTexture();case id==216:runAITexture();case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
-const currentVersion="v0.9.12"
+const currentVersion="v0.9.15"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
 const WM_UPDATE_CHECKED=0x8010
 const WM_UPDATE_DOWNLOADED=0x8011
@@ -1001,7 +1015,7 @@ func main(){
  // control, making the whole application appear blank/white.
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
- ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.12",20,15,600,28,0,0);
+ ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.15",20,15,600,28,0,0);
  ctl("BUTTON","Morph Settings",700,12,165,32,200,0);ctl("BUTTON","Face Texture",800,12,120,32,202,0);ctl("BUTTON","Graphic Generator",925,12,155,32,300,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,760,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%6)*172,255+(i/6)*38,165,31,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
