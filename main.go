@@ -336,24 +336,47 @@ func applyTexturePreview(){
 
 func runAITexture(){
  if aiBusy{return}
- if imagePath==""{alert("Import a reference photo in Morph Settings first.");return}
- exe,err:=os.Executable();if err!=nil{alert(err.Error());return}
+ if imagePath==""{set(215,"Import a reference photo before running local AI.");return}
+ exe,err:=os.Executable();if err!=nil{set(215,"Cannot locate application: "+err.Error());return}
  dir:=filepath.Dir(exe)
  workflow:=strings.TrimSpace(txt(211))
  if workflow==""{workflow=filepath.Join(dir,"workflow_api.json")}
- if _,err:=os.Stat(workflow);err!=nil{alert("Choose a ComfyUI API-format workflow JSON path in AI Settings (or put workflow_api.json beside the app).");return}
  tmpl:=strings.TrimSpace(txt(23))
  if tmpl==""{tmpl=gender+strconv.Itoa(template)}
- outdir:=filepath.Join(dir,"WWE_Morph_Exports");if err:=os.MkdirAll(outdir,0755);err!=nil{alert(err.Error());return}
- out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
- aiBusy=true;set(215,"Local AI generating via ComfyUI... This may take several minutes.")
  photo:=imagePath
+ aiBusy=true
+ set(215,"Checking local AI dependencies in background...")
  go func(){
-  cmd:=exec.Command(filepath.Join(dir,"local-engine.exe"),photo,tmpl,workflow,out)
-  output,err:=cmd.CombinedOutput()
-  matchMu.Lock()
-  if err!=nil{aiResult="Local AI failed: "+err.Error()+" "+string(output);aiOutput=""}else{aiResult="Saved 820 x 820: "+out;aiOutput=out}
-  matchMu.Unlock()
+  var result,outputPath string
+  engine:=filepath.Join(dir,"local-engine.exe")
+  if _,err:=os.Stat(engine);err!=nil{
+   result="Local AI is unavailable: local-engine.exe is not installed. Standard face texture generation remains available."
+  }else if _,err:=os.Stat(workflow);err!=nil{
+   result="Local AI workflow not found. Standard face texture generation remains available."
+  }else{
+   home,_:=os.UserHomeDir()
+   if home==""{home=os.TempDir()}
+   outdir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
+   if err:=os.MkdirAll(outdir,0755);err!=nil{
+    result="Cannot create AI output folder: "+err.Error()
+   }else{
+    out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
+    ctx,cancel:=context.WithTimeout(context.Background(),3*time.Minute)
+    defer cancel()
+    cmd:=exec.CommandContext(ctx,engine,photo,tmpl,workflow,out)
+    output,err:=cmd.CombinedOutput()
+    if ctx.Err()==context.DeadlineExceeded{
+     result="Local AI timed out after 3 minutes. The worker was stopped; the main window remains usable."
+    }else if err!=nil{
+     detail:=string(output);if len(detail)>600{detail=detail[:600]}
+     result="Local AI failed: "+err.Error()+" "+detail
+    }else{
+     result="Saved 820 x 820: "+out
+     outputPath=out
+    }
+   }
+  }
+  matchMu.Lock();aiResult=result;aiOutput=outputPath;matchMu.Unlock()
   postMessage.Call(hwnd,WM_AI_DONE,0,0)
  }()
 }
@@ -878,7 +901,7 @@ case WM_COMMAND:
  }
  case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==307:startGraphic();case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
-const currentVersion="v0.9.24"
+const currentVersion="v0.9.25"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
 const WM_UPDATE_CHECKED=0x8010
 const WM_UPDATE_DOWNLOADED=0x8011
@@ -1039,13 +1062,13 @@ func main(){
   fmt.Print(path)
   return
  }
- exe,_:=os.Executable();templateLibraryDir=filepath.Join(filepath.Dir(exe),"assets","templates");os.MkdirAll(templateLibraryDir,0755);syscall.NewLazyDLL("comctl32.dll").NewProc("InitCommonControls").Call();for _,g:=range groups{for _,s:=range g.items{values[g.name+" / "+s]=50}};inst,_,_:=instance.Call(0);class:=ptr("WWEMorphStudioNative");wc:=WNDCLASSEX{Size:uint32(unsafe.Sizeof(WNDCLASSEX{})),WndProc:syscall.NewCallback(wndproc),Instance:inst,ClassName:class,Background:6};reg.Call(uintptr(unsafe.Pointer(&wc)));hwnd,_,_=create.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(ptr("CAWForge Studio — Desktop Edition v0.9.24"))),WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,70,1130,900,0,0,inst,0)
+ exe,_:=os.Executable();templateLibraryDir=filepath.Join(filepath.Dir(exe),"assets","templates");os.MkdirAll(templateLibraryDir,0755);syscall.NewLazyDLL("comctl32.dll").NewProc("InitCommonControls").Call();for _,g:=range groups{for _,s:=range g.items{values[g.name+" / "+s]=50}};inst,_,_:=instance.Call(0);class:=ptr("WWEMorphStudioNative");wc:=WNDCLASSEX{Size:uint32(unsafe.Sizeof(WNDCLASSEX{})),WndProc:syscall.NewCallback(wndproc),Instance:inst,ClassName:class,Background:6};reg.Call(uintptr(unsafe.Pointer(&wc)));hwnd,_,_=create.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(ptr("CAWForge Studio — Desktop Edition v0.9.25"))),WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,70,1130,900,0,0,inst,0)
  // Startup safe mode: skip theme restoration until the user requests it.
  // Avoid a full-window STATIC bitmap: it can paint over every interactive
  // control, making the whole application appear blank/white.
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
- ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.24",20,15,565,28,0,0);
+ ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.25",20,15,565,28,0,0);
  ctl("BUTTON","Morph Settings",610,12,145,32,200,0);ctl("BUTTON","Face Texture",765,12,140,32,202,0);ctl("BUTTON","Graphic Generator",915,12,180,32,300,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%6)*172,255+(i/6)*38,165,31,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
