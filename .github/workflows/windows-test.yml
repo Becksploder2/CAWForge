@@ -25,8 +25,6 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path main.go)) { throw 'main.go is missing. Upload CAWForge source before building.' }
-          if (!(Test-Path assets/templates/Female)) { throw 'Female template folder is missing.' }
-          if (!(Test-Path assets/templates/Male)) { throw 'Male template folder is missing.' }
       - name: Compile Windows GUI
         shell: pwsh
         run: |
@@ -39,11 +37,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
-          Copy-Item assets dist/CAWForge/assets -Recurse
+          if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
           foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
-          if (!(Test-Path dist/CAWForge/assets/templates/Female/F1.png)) { throw 'F1 template missing from packaged app.' }
+          Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
       - name: Upload test ZIP (not a public release)
         uses: actions/upload-artifact@v4
         with:
