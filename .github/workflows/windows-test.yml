@@ -1,0 +1,53 @@
+name: CAWForge Windows Test Build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'assets/**'
+      - 'viewer.html'
+      - 'ai_behavior_studio.html'
+      - '.github/workflows/windows-test.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Validate source and assets
+        shell: pwsh
+        run: |
+          if (!(Test-Path main.go)) { throw 'main.go is missing. Upload CAWForge source before building.' }
+          if (!(Test-Path assets/templates/Female)) { throw 'Female template folder is missing.' }
+          if (!(Test-Path assets/templates/Male)) { throw 'Male template folder is missing.' }
+      - name: Compile Windows GUI
+        shell: pwsh
+        run: |
+          $env:GOOS='windows'
+          $env:GOARCH='amd64'
+          $env:CGO_ENABLED='0'
+          go build -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
+      - name: Stage app and preserve template folders
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
+          Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
+          Copy-Item assets dist/CAWForge/assets -Recurse
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe')) {
+            if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
+          }
+          if (!(Test-Path dist/CAWForge/assets/templates/Female/F1.png)) { throw 'F1 template missing from packaged app.' }
+      - name: Upload test ZIP (not a public release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAWForge-Windows-Test
+          path: dist/CAWForge/
+          if-no-files-found: error
+          retention-days: 14
