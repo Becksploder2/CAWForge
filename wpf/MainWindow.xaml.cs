@@ -10,7 +10,37 @@ public partial class MainWindow : Window {
  private int recognitionVersion=0;
  private readonly Dictionary<string,Slider> morphSliders=new();
  public MainWindow() { InitializeComponent(); for(int i=1;i<=21;i++) TemplateBox.Items.Add("Template "+i); TemplateBox.SelectedIndex=9; foreach(var name in new[]{"Head Width","Head Height","Head Depth","Eye Width","Eye Height","Nose Width","Nose Height","Mouth Width","Jaw Width","Chin Height"}) {var panel=new StackPanel{Margin=new Thickness(0,0,0,8)};panel.Children.Add(new TextBlock{Text=name,Foreground=System.Windows.Media.Brushes.White});panel.Children.Add(new Slider{Minimum=0,Maximum=100,Value=50,Width=360,HorizontalAlignment=HorizontalAlignment.Left});SlidersList.Items.Add(panel);morphSliders[name]=(Slider)panel.Children[1];} }
- private async void ImportPhoto_Click(object sender,RoutedEventArgs e) {var dialog=new OpenFileDialog{Title="Choose reference photo",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp",CheckFileExists=true};if(dialog.ShowDialog(this)!=true)return;var path=dialog.FileName;StatusText.Text="Validating image…";try {var bitmap=await Task.Run(()=>{var info=new FileInfo(path);if(info.Length>75L*1024*1024)throw new InvalidDataException("Image exceeds 75 MB.");using var stream=File.OpenRead(path);var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.DelayCreation,BitmapCacheOption.None);var frame=decoder.Frames[0];if((long)frame.PixelWidth*frame.PixelHeight>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");return (frame.PixelWidth,frame.PixelHeight);});var preview=new BitmapImage();preview.BeginInit();preview.UriSource=new Uri(path);preview.DecodePixelWidth=480;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();PhotoPreview.Source=preview;selectedPhoto=path;PhotoPathText.Text=Path.GetFileName(path);StatusText.Text=$"Photo ready ({bitmap.Item1} × {bitmap.Item2}).";await MatchTemplateAsync();}catch(Exception ex){StatusText.Text="Import failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Import error",MessageBoxButton.OK,MessageBoxImage.Warning);} }
+ private async void ImportPhoto_Click(object sender,RoutedEventArgs e)
+ {
+  var dialog=new OpenFileDialog{Title="Choose reference photo",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp",CheckFileExists=true};
+  if(dialog.ShowDialog(this)!=true)return;
+  var path=dialog.FileName;
+  StatusText.Text="Loading image in background…";
+  try {
+   var result=await Task.Run(()=>{
+    var info=new FileInfo(path);
+    if(info.Length>75L*1024*1024)throw new InvalidDataException("Image exceeds 75 MB.");
+    using var stream=File.OpenRead(path);
+    var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);
+    var frame=decoder.Frames[0];
+    var width=frame.PixelWidth;var height=frame.PixelHeight;
+    if(width<1||height<1||(long)width*height>35000000)throw new InvalidDataException("Image dimensions are unsupported.");
+    var factor=Math.Min(1.0,480.0/Math.Max(width,height));
+    BitmapSource preview=frame;
+    if(factor<1)preview=new TransformedBitmap(frame,new System.Windows.Media.ScaleTransform(factor,factor));
+    preview.Freeze();
+    return (width,height,preview);
+   });
+   PhotoPreview.Source=result.preview;
+   selectedPhoto=path;
+   PhotoPathText.Text=Path.GetFileName(path);
+   StatusText.Text=$"Photo ready ({result.width} × {result.height}).";
+   await MatchTemplateAsync();
+  }catch(Exception ex){
+   StatusText.Text="Import failed: "+ex.Message;
+   MessageBox.Show(this,ex.Message,"Import error",MessageBoxButton.OK,MessageBoxImage.Warning);
+  }
+ }
 
  private void ExportMorph_Click(object sender,RoutedEventArgs e) {
   var dlg=new SaveFileDialog{Title="Export morph sheet",Filter="Text files|*.txt",FileName="CAWForge-Morph-Sheet.txt"};
