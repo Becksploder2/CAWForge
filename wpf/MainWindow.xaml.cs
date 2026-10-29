@@ -8,7 +8,7 @@ public partial class MainWindow : Window {
  private string? selectedPhoto;
  private string? attirePhoto;
  private readonly Dictionary<string,Slider> morphSliders=new();
- public MainWindow() { InitializeComponent(); for(int i=1;i<=20;i++) TemplateBox.Items.Add("Template "+i); TemplateBox.SelectedIndex=9; foreach(var name in new[]{"Head Width","Head Height","Head Depth","Eye Width","Eye Height","Nose Width","Nose Height","Mouth Width","Jaw Width","Chin Height"}) {var panel=new StackPanel{Margin=new Thickness(0,0,0,8)};panel.Children.Add(new TextBlock{Text=name,Foreground=System.Windows.Media.Brushes.White});panel.Children.Add(new Slider{Minimum=0,Maximum=100,Value=50,Width=360,HorizontalAlignment=HorizontalAlignment.Left});SlidersList.Items.Add(panel);morphSliders[name]=(Slider)panel.Children[1];} }
+ public MainWindow() { InitializeComponent(); for(int i=1;i<=21;i++) TemplateBox.Items.Add("Template "+i); TemplateBox.SelectedIndex=9; foreach(var name in new[]{"Head Width","Head Height","Head Depth","Eye Width","Eye Height","Nose Width","Nose Height","Mouth Width","Jaw Width","Chin Height"}) {var panel=new StackPanel{Margin=new Thickness(0,0,0,8)};panel.Children.Add(new TextBlock{Text=name,Foreground=System.Windows.Media.Brushes.White});panel.Children.Add(new Slider{Minimum=0,Maximum=100,Value=50,Width=360,HorizontalAlignment=HorizontalAlignment.Left});SlidersList.Items.Add(panel);morphSliders[name]=(Slider)panel.Children[1];} }
  private async void ImportPhoto_Click(object sender,RoutedEventArgs e) {var dialog=new OpenFileDialog{Title="Choose reference photo",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp",CheckFileExists=true};if(dialog.ShowDialog(this)!=true)return;var path=dialog.FileName;StatusText.Text="Validating image…";try {var bitmap=await Task.Run(()=>{var info=new FileInfo(path);if(info.Length>75L*1024*1024)throw new InvalidDataException("Image exceeds 75 MB.");using var stream=File.OpenRead(path);var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.DelayCreation,BitmapCacheOption.None);var frame=decoder.Frames[0];if((long)frame.PixelWidth*frame.PixelHeight>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");return (frame.PixelWidth,frame.PixelHeight);});var preview=new BitmapImage();preview.BeginInit();preview.UriSource=new Uri(path);preview.DecodePixelWidth=480;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();PhotoPreview.Source=preview;selectedPhoto=path;PhotoPathText.Text=Path.GetFileName(path);StatusText.Text=$"Photo ready ({bitmap.Item1} × {bitmap.Item2}).";}catch(Exception ex){StatusText.Text="Import failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Import error",MessageBoxButton.OK,MessageBoxImage.Warning);} }
 
  private void ExportMorph_Click(object sender,RoutedEventArgs e) {
@@ -102,5 +102,49 @@ public partial class MainWindow : Window {
   var image=BitmapSource.Create(w,h,96,96,System.Windows.Media.PixelFormats.Bgra32,null,pixels,stride);image.Freeze();
   var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(image));
   using var output=new MemoryStream();encoder.Save(output);return output.ToArray();
+ }
+
+ private async void MatchTemplate_Click(object sender,RoutedEventArgs e){
+  if(selectedPhoto is null){MatchStatusText.Text="Import a reference photo first.";return;}
+  var gender=GenderBox.SelectedIndex==0?"M":"F";
+  var folder=Path.Combine(AppContext.BaseDirectory,"Templates");
+  var photo=selectedPhoto;
+  MatchTemplateButton.IsEnabled=false;MatchStatusText.Text="Comparing installed template references in background…";
+  try{
+   var matches=await Task.Run(()=>{
+    var files=Enumerable.Range(1,gender=="F"?21:20)
+     .SelectMany(i=>new[]{".png",".jpg",".jpeg",".bmp"}.Select(ext=>(id:i,path:Path.Combine(folder,gender+i+ext))))
+     .Where(x=>File.Exists(x.path)).ToList();
+    if(files.Count==0)return new List<(int id,double distance)>();
+    var reference=ReadVisualDescriptor(photo);
+    return files.Select(x=>{try{return (x.id,distance:VisualDistance(reference,ReadVisualDescriptor(x.path)));}catch{return (x.id,distance:double.PositiveInfinity);}})
+     .Where(x=>double.IsFinite(x.distance)).OrderBy(x=>x.distance).Take(3).ToList();
+   });
+   if(matches.Count==0){MatchStatusText.Text="No usable "+gender+" reference images found in "+folder+". Add M1–M20 or F1–F21 PNG/JPG files.";return;}
+   var best=matches[0];TemplateBox.SelectedIndex=best.id-1;
+   MatchStatusText.Text="Closest visual references: "+string.Join(", ",matches.Select(x=>gender+x.id))+". Selected "+gender+best.id+". Experimental image similarity, NOT facial landmark recognition.";
+   StatusText.Text="Template suggestion selected. Verify against the in-game face.";
+  }catch(Exception ex){MatchStatusText.Text="Template comparison failed: "+ex.Message;}
+  finally{MatchTemplateButton.IsEnabled=true;}
+ }
+ private static double[] ReadVisualDescriptor(string path){
+  using var stream=File.OpenRead(path);
+  var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);
+  var frame=decoder.Frames[0];
+  if((long)frame.PixelWidth*frame.PixelHeight>35000000)throw new InvalidDataException("Reference exceeds 35 megapixels.");
+  int side=Math.Min(frame.PixelWidth,frame.PixelHeight);
+  var crop=new CroppedBitmap(frame,new System.Windows.Int32Rect((frame.PixelWidth-side)/2,(frame.PixelHeight-side)/2,side,side));crop.Freeze();
+  var scaled=new TransformedBitmap(crop,new System.Windows.Media.ScaleTransform(16.0/side,16.0/side));scaled.Freeze();
+  var gray=new FormatConvertedBitmap(scaled,System.Windows.Media.PixelFormats.Gray8,null,0);gray.Freeze();
+  int w=gray.PixelWidth,h=gray.PixelHeight;
+  var pixels=new byte[w*h];gray.CopyPixels(pixels,w,0);
+  var result=new double[pixels.Length];double mean=pixels.Average(x=>(double)x);
+  double sd=Math.Sqrt(pixels.Average(x=>Math.Pow(x-mean,2)));if(sd<1)sd=1;
+  for(int i=0;i<pixels.Length;i++)result[i]=(pixels[i]-mean)/sd;
+  return result;
+ }
+ private static double VisualDistance(double[] a,double[] b){
+  if(a.Length!=b.Length)return double.PositiveInfinity;
+  double sum=0;for(int i=0;i<a.Length;i++){var d=a[i]-b[i];sum+=d*d;}return sum;
  }
 }
