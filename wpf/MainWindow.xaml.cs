@@ -58,25 +58,53 @@ public partial class MainWindow : Window {
  }
  private async void GenerateTexture_Click(object sender,RoutedEventArgs e) {
   if(selectedPhoto is null){MessageBox.Show(this,"Import a reference photo in Morph Settings first.");return;}
-  var dlg=new SaveFileDialog{Title="Save reference crop",Filter="PNG image|*.png",FileName="CAWForge-Face-Reference-820.png"};
+  var dlg=new SaveFileDialog{Title="Save generated face texture",Filter="PNG image|*.png",FileName="CAWForge-Face-Texture-820.png"};
   if(dlg.ShowDialog(this)!=true)return;
-  StatusText.Text="Generating 820 × 820 reference crop…";
+  StatusText.Text="Generating blended 820 × 820 face texture…";
   try{
    var source=selectedPhoto;var output=dlg.FileName;
-   await Task.Run(()=>{
-    using var stream=File.OpenRead(source);
-    var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);
-    var frame=decoder.Frames[0];
-    var side=Math.Min(frame.PixelWidth,frame.PixelHeight);
-    var crop=new CroppedBitmap(frame,new System.Windows.Int32Rect((frame.PixelWidth-side)/2,(frame.PixelHeight-side)/2,side,side));
-    crop.Freeze();
-    var target=new TransformedBitmap(crop,new System.Windows.Media.ScaleTransform(820.0/side,820.0/side));target.Freeze();
-    var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(target));
-    using var dest=File.Create(output);encoder.Save(dest);
-   });
-   var preview=new BitmapImage();preview.BeginInit();preview.UriSource=new Uri(output);preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();TexturePreview.Source=preview;
-   StatusText.Text="820 × 820 reference crop saved: "+output;
-  }catch(Exception ex){StatusText.Text="Texture crop failed";MessageBox.Show(this,ex.Message,"Texture error",MessageBoxButton.OK,MessageBoxImage.Error);}
+   var png=await Task.Run(()=>MakeFaceTexture(source));
+   await File.WriteAllBytesAsync(output,png);
+   using var ms=new MemoryStream(png);
+   var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
+   TexturePreview.Source=preview;
+   StatusText.Text="Blended 820 × 820 face texture saved. Verify alignment in WWE 2K26.";
+  }catch(Exception ex){StatusText.Text="Face texture generation failed.";MessageBox.Show(this,ex.Message,"Face texture error",MessageBoxButton.OK,MessageBoxImage.Error);}
+ }
+ private static byte[] MakeFaceTexture(string path){
+  using var src=Cv2.ImRead(path,ImreadModes.Color);
+  if(src.Empty())throw new InvalidDataException("Unable to decode reference photo.");
+  if((long)src.Width*src.Height>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");
+  using var resized=new Mat();
+  int cropWidth=(int)Math.Max(1,Math.Min(src.Width,src.Height*0.78));
+  int cropHeight=(int)Math.Max(1,Math.Min(src.Height,cropWidth/0.78));
+  int x=Math.Max(0,(src.Width-cropWidth)/2),y=Math.Max(0,(src.Height-cropHeight)/2);
+  using(var crop=new Mat(src,new OpenCvSharp.Rect(x,y,cropWidth,cropHeight)))
+   Cv2.Resize(crop,resized,new OpenCvSharp.Size(608,770));
+  using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
+  var cheek1=resized.At<OpenCvSharp.Vec3b>(385,210);
+  var cheek2=resized.At<OpenCvSharp.Vec3b>(385,398);
+  var cheek3=resized.At<OpenCvSharp.Vec3b>(520,304);
+  byte blue=(byte)((cheek1.Item0+cheek2.Item0+cheek3.Item0)/3);
+  byte green=(byte)((cheek1.Item1+cheek2.Item1+cheek3.Item1)/3);
+  byte red=(byte)((cheek1.Item2+cheek2.Item2+cheek3.Item2)/3);
+  texture.SetTo(new OpenCvSharp.Scalar(blue,green,red));
+  for(int row=0;row<770;row++){
+   for(int col=0;col<608;col++){
+    double nx=(col-303.5)/304.0,ny=(row-384.5)/385.0;
+    double radius=Math.Sqrt(nx*nx+ny*ny);
+    double alpha=Math.Clamp((0.98-radius)/0.18,0,1);
+    if(alpha<=0)continue;
+    var pixel=resized.At<OpenCvSharp.Vec3b>(row,col);
+    var blended=new OpenCvSharp.Vec3b(
+     (byte)(pixel.Item0*alpha+blue*(1-alpha)),
+     (byte)(pixel.Item1*alpha+green*(1-alpha)),
+     (byte)(pixel.Item2*alpha+red*(1-alpha)));
+    texture.Set(row+25,col+106,blended);
+   }
+  }
+  Cv2.ImEncode(".png",texture,out var encoded);
+  return encoded;
  }
 
  private void ImportAttire_Click(object sender,RoutedEventArgs e){
