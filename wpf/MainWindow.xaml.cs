@@ -1,4 +1,8 @@
-using OpenCvSharp;
+using Cv2 = OpenCvSharp.Cv2;
+using CascadeClassifier = OpenCvSharp.CascadeClassifier;
+using ImreadModes = OpenCvSharp.ImreadModes;
+using HaarDetectionTypes = OpenCvSharp.HaarDetectionTypes;
+using Mat = OpenCvSharp.Mat;
 using Microsoft.Win32;
 using System.IO;
 using System.Windows;
