@@ -7,9 +7,10 @@ namespace CAWForge;
 public partial class MainWindow : Window {
  private string? selectedPhoto;
  private string? attirePhoto;
+ private int recognitionVersion=0;
  private readonly Dictionary<string,Slider> morphSliders=new();
  public MainWindow() { InitializeComponent(); for(int i=1;i<=21;i++) TemplateBox.Items.Add("Template "+i); TemplateBox.SelectedIndex=9; foreach(var name in new[]{"Head Width","Head Height","Head Depth","Eye Width","Eye Height","Nose Width","Nose Height","Mouth Width","Jaw Width","Chin Height"}) {var panel=new StackPanel{Margin=new Thickness(0,0,0,8)};panel.Children.Add(new TextBlock{Text=name,Foreground=System.Windows.Media.Brushes.White});panel.Children.Add(new Slider{Minimum=0,Maximum=100,Value=50,Width=360,HorizontalAlignment=HorizontalAlignment.Left});SlidersList.Items.Add(panel);morphSliders[name]=(Slider)panel.Children[1];} }
- private async void ImportPhoto_Click(object sender,RoutedEventArgs e) {var dialog=new OpenFileDialog{Title="Choose reference photo",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp",CheckFileExists=true};if(dialog.ShowDialog(this)!=true)return;var path=dialog.FileName;StatusText.Text="Validating image…";try {var bitmap=await Task.Run(()=>{var info=new FileInfo(path);if(info.Length>75L*1024*1024)throw new InvalidDataException("Image exceeds 75 MB.");using var stream=File.OpenRead(path);var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.DelayCreation,BitmapCacheOption.None);var frame=decoder.Frames[0];if((long)frame.PixelWidth*frame.PixelHeight>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");return (frame.PixelWidth,frame.PixelHeight);});var preview=new BitmapImage();preview.BeginInit();preview.UriSource=new Uri(path);preview.DecodePixelWidth=480;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();PhotoPreview.Source=preview;selectedPhoto=path;PhotoPathText.Text=Path.GetFileName(path);StatusText.Text=$"Photo ready ({bitmap.Item1} × {bitmap.Item2}).";}catch(Exception ex){StatusText.Text="Import failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Import error",MessageBoxButton.OK,MessageBoxImage.Warning);} }
+ private async void ImportPhoto_Click(object sender,RoutedEventArgs e) {var dialog=new OpenFileDialog{Title="Choose reference photo",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp",CheckFileExists=true};if(dialog.ShowDialog(this)!=true)return;var path=dialog.FileName;StatusText.Text="Validating image…";try {var bitmap=await Task.Run(()=>{var info=new FileInfo(path);if(info.Length>75L*1024*1024)throw new InvalidDataException("Image exceeds 75 MB.");using var stream=File.OpenRead(path);var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.DelayCreation,BitmapCacheOption.None);var frame=decoder.Frames[0];if((long)frame.PixelWidth*frame.PixelHeight>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");return (frame.PixelWidth,frame.PixelHeight);});var preview=new BitmapImage();preview.BeginInit();preview.UriSource=new Uri(path);preview.DecodePixelWidth=480;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();PhotoPreview.Source=preview;selectedPhoto=path;PhotoPathText.Text=Path.GetFileName(path);StatusText.Text=$"Photo ready ({bitmap.Item1} × {bitmap.Item2}).";await MatchTemplateAsync();}catch(Exception ex){StatusText.Text="Import failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Import error",MessageBoxButton.OK,MessageBoxImage.Warning);} }
 
  private void ExportMorph_Click(object sender,RoutedEventArgs e) {
   var dlg=new SaveFileDialog{Title="Export morph sheet",Filter="Text files|*.txt",FileName="CAWForge-Morph-Sheet.txt"};
@@ -104,11 +105,13 @@ public partial class MainWindow : Window {
   using var output=new MemoryStream();encoder.Save(output);return output.ToArray();
  }
 
- private async void MatchTemplate_Click(object sender,RoutedEventArgs e){
+ private async void MatchTemplate_Click(object sender,RoutedEventArgs e){await MatchTemplateAsync();}
+ private async Task MatchTemplateAsync(){
   if(selectedPhoto is null){MatchStatusText.Text="Import a reference photo first.";return;}
   var gender=GenderBox.SelectedIndex==0?"M":"F";
   var folder=Path.Combine(AppContext.BaseDirectory,"Templates");
   var photo=selectedPhoto;
+  var request=++recognitionVersion;
   MatchTemplateButton.IsEnabled=false;MatchStatusText.Text="Comparing installed template references in background…";
   try{
    var matches=await Task.Run(()=>{
@@ -120,12 +123,13 @@ public partial class MainWindow : Window {
     return files.Select(x=>{try{return (x.id,distance:VisualDistance(reference,ReadVisualDescriptor(x.path)));}catch{return (x.id,distance:double.PositiveInfinity);}})
      .Where(x=>double.IsFinite(x.distance)).OrderBy(x=>x.distance).Take(3).ToList();
    });
+   if(request!=recognitionVersion || photo!=selectedPhoto)return;
    if(matches.Count==0){MatchStatusText.Text="No usable "+gender+" reference images found in "+folder+". Add M1–M20 or F1–F21 PNG/JPG files.";return;}
    var best=matches[0];TemplateBox.SelectedIndex=best.id-1;
    MatchStatusText.Text="Closest visual references: "+string.Join(", ",matches.Select(x=>gender+x.id))+". Selected "+gender+best.id+". Experimental image similarity, NOT facial landmark recognition.";
    StatusText.Text="Template suggestion selected. Verify against the in-game face.";
   }catch(Exception ex){MatchStatusText.Text="Template comparison failed: "+ex.Message;}
-  finally{MatchTemplateButton.IsEnabled=true;}
+  finally{if(request==recognitionVersion)MatchTemplateButton.IsEnabled=true;}
  }
  private static double[] ReadVisualDescriptor(string path){
   using var stream=File.OpenRead(path);
