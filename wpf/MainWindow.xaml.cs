@@ -1,3 +1,4 @@
+using OpenCvSharp;
 using Microsoft.Win32;
 using System.IO;
 using System.Windows;
@@ -156,10 +157,13 @@ public partial class MainWindow : Window {
    if(request!=recognitionVersion || photo!=selectedPhoto)return;
    if(matches.Count==0){MatchStatusText.Text="No usable "+gender+" reference images found in "+folder+". Add M1–M20 or F1–F21 PNG/JPG files.";return;}
    var best=matches[0];TemplateBox.SelectedIndex=best.id-1;
+   var faceResult=await Task.Run(()=>DetectFace(photo));
+   if(request!=recognitionVersion || photo!=selectedPhoto)return;
+   if(faceResult is null){MatchStatusText.Text="No face detected. Template selection was based on image similarity; automatic slider estimates were not applied.";return;}
    var photoDescriptor=await Task.Run(()=>ReadVisualDescriptor(photo));
    if(request!=recognitionVersion || photo!=selectedPhoto)return;
    ApplyEstimatedMorph(photoDescriptor,best.descriptor);
-   MatchStatusText.Text="Closest visual references: "+string.Join(", ",matches.Select(x=>gender+x.id))+". Selected "+gender+best.id+". Experimental image similarity, NOT facial landmark recognition.";
+   MatchStatusText.Text="Face detected. Closest visual references: "+string.Join(", ",matches.Select(x=>gender+x.id))+". Selected "+gender+best.id+". Experimental image similarity, NOT facial landmark recognition.";
    StatusText.Text="Template suggestion selected. Verify against the in-game face.";
   }catch(Exception ex){MatchStatusText.Text="Template comparison failed: "+ex.Message;}
   finally{if(request==recognitionVersion)MatchTemplateButton.IsEnabled=true;}
@@ -195,5 +199,22 @@ public partial class MainWindow : Window {
    for(int j=0;j<18;j++)delta+=(photo[start+j]-template[start+j])/18.0;
    entry.Value.Value=Math.Clamp(Math.Round(50+delta*13),0,100);
   }
+ }
+
+ private static OpenCvSharp.Rect? DetectFace(string path){
+  var cascadePath=Path.Combine(AppContext.BaseDirectory,"Models","haarcascade_frontalface_default.xml");
+  if(!File.Exists(cascadePath))return null;
+  using var cascade=new CascadeClassifier(cascadePath);
+  if(cascade.Empty())return null;
+  using var source=Cv2.ImRead(path,ImreadModes.Grayscale);
+  if(source.Empty())return null;
+  using var resized=new Mat();
+  double factor=Math.Min(1.0,640.0/Math.Max(source.Width,source.Height));
+  if(factor<1)Cv2.Resize(source,resized,new OpenCvSharp.Size(),factor,factor);
+  else source.CopyTo(resized);
+  Cv2.EqualizeHist(resized,resized);
+  var faces=cascade.DetectMultiScale(resized,1.1,5,HaarDetectionTypes.ScaleImage,new OpenCvSharp.Size(36,36));
+  if(faces.Length==0)return null;
+  return faces.OrderByDescending(x=>x.Width*x.Height).First();
  }
 }
