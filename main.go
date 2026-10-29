@@ -158,6 +158,8 @@ var calibrationMessage string
 var calMu sync.Mutex
 var calibrationRunning bool
 func feature(path string)([]float64,error){
+ imageWorkGate<-struct{}{}
+ defer func(){<-imageWorkGate}()
  f,err:=os.Open(path);if err!=nil{return nil,err};defer f.Close()
  im,_,err:=image.Decode(f);if err!=nil{return nil,err}
  b:=im.Bounds();if b.Dx()<32||b.Dy()<32{return nil,fmt.Errorf("image too small")}
@@ -247,6 +249,8 @@ func suggestedMorph(photo,reference []float64)map[string]int{
  return out
 }
 func generateTexture(photoPath,outPath string)error{
+ imageWorkGate<-struct{}{}
+ defer func(){<-imageWorkGate}()
  f,err:=os.Open(photoPath);if err!=nil{return err};defer f.Close()
  im,_,err:=image.Decode(f);if err!=nil{return err}
  b:=im.Bounds();w,h:=b.Dx(),b.Dy()
@@ -289,6 +293,8 @@ func writeFacePrompt(path string)error{
 // Windows STATIC image preview uses an RGB BMP generated from the exported PNG.
 // BMP is a temporary preview file; the user-facing output remains PNG.
 func writePreviewBMP(path string) (string,error){
+ imageWorkGate<-struct{}{}
+ defer func(){<-imageWorkGate}()
  f,err:=os.Open(path);if err!=nil{return "",err};defer f.Close()
  im,_,err:=image.Decode(f);if err!=nil{return "",err}
  const side=320
@@ -744,7 +750,9 @@ func findTemplatePreview()string{
  }
  return ""
 }
-var previewGate=make(chan struct{},1)
+// One shared slot limits CPU and memory pressure from concurrent image jobs.
+var imageWorkGate=make(chan struct{},1)
+var previewGate=imageWorkGate
 func updateMorphPreview(){
  // File decoding and resizing must never block the Win32 message loop.
  previewMu.Lock()
@@ -909,7 +917,7 @@ case WM_COMMAND:
  }
  case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==307:startGraphic();case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
-const currentVersion="v0.9.26"
+const currentVersion="v0.9.27"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
 const WM_UPDATE_CHECKED=0x8010
 const WM_UPDATE_DOWNLOADED=0x8011
@@ -1070,13 +1078,13 @@ func main(){
   fmt.Print(path)
   return
  }
- exe,_:=os.Executable();templateLibraryDir=filepath.Join(filepath.Dir(exe),"assets","templates");os.MkdirAll(templateLibraryDir,0755);syscall.NewLazyDLL("comctl32.dll").NewProc("InitCommonControls").Call();for _,g:=range groups{for _,s:=range g.items{values[g.name+" / "+s]=50}};inst,_,_:=instance.Call(0);class:=ptr("WWEMorphStudioNative");wc:=WNDCLASSEX{Size:uint32(unsafe.Sizeof(WNDCLASSEX{})),WndProc:syscall.NewCallback(wndproc),Instance:inst,ClassName:class,Background:6};reg.Call(uintptr(unsafe.Pointer(&wc)));hwnd,_,_=create.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(ptr("CAWForge Studio — Desktop Edition v0.9.26"))),WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,70,1130,900,0,0,inst,0)
+ exe,_:=os.Executable();templateLibraryDir=filepath.Join(filepath.Dir(exe),"assets","templates");os.MkdirAll(templateLibraryDir,0755);syscall.NewLazyDLL("comctl32.dll").NewProc("InitCommonControls").Call();for _,g:=range groups{for _,s:=range g.items{values[g.name+" / "+s]=50}};inst,_,_:=instance.Call(0);class:=ptr("WWEMorphStudioNative");wc:=WNDCLASSEX{Size:uint32(unsafe.Sizeof(WNDCLASSEX{})),WndProc:syscall.NewCallback(wndproc),Instance:inst,ClassName:class,Background:6};reg.Call(uintptr(unsafe.Pointer(&wc)));hwnd,_,_=create.Call(0,uintptr(unsafe.Pointer(class)),uintptr(unsafe.Pointer(ptr("CAWForge Studio — Desktop Edition v0.9.27"))),WS_OVERLAPPEDWINDOW|WS_VISIBLE,100,70,1130,900,0,0,inst,0)
  // Startup safe mode: skip theme restoration until the user requests it.
  // Avoid a full-window STATIC bitmap: it can paint over every interactive
  // control, making the whole application appear blank/white.
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
- ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.26",20,15,565,28,0,0);
+ ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.27",20,15,565,28,0,0);
  ctl("BUTTON","Morph Settings",610,12,145,32,200,0);ctl("BUTTON","Face Texture",765,12,140,32,202,0);ctl("BUTTON","Graphic Generator",915,12,180,32,300,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%6)*172,255+(i/6)*38,165,31,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
