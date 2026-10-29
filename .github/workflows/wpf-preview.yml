@@ -13,6 +13,11 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Publish standalone WPF app
         run: dotnet publish wpf/CAWForge.Wpf.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
+      - name: Prepare optional template reference folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/Templates | Out-Null
+          Set-Content -Path dist/Templates/README.txt -Value "Add actual WWE 2K26 template screenshots here, named M1.png through M20.png and F1.png through F21.png (or .jpg). The app compares visual appearance only; this is not landmark detection. The reference images are not included in the build."
       - uses: actions/upload-artifact@v4
         with:
           name: CAWForge-WPF-Preview-Windows
