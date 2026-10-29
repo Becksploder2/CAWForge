@@ -148,14 +148,17 @@ public partial class MainWindow : Window {
     var files=Enumerable.Range(1,gender=="F"?21:20)
      .SelectMany(i=>new[]{".png",".jpg",".jpeg",".bmp"}.Select(ext=>(id:i,path:Path.Combine(folder,gender+i+ext))))
      .Where(x=>File.Exists(x.path)).ToList();
-    if(files.Count==0)return new List<(int id,double distance)>();
+    if(files.Count==0)return new List<(int id,double distance,double[] descriptor)>();
     var reference=ReadVisualDescriptor(photo);
-    return files.Select(x=>{try{return (x.id,distance:VisualDistance(reference,ReadVisualDescriptor(x.path)));}catch{return (x.id,distance:double.PositiveInfinity);}})
+    return files.Select(x=>{try{var descriptor=ReadVisualDescriptor(x.path);return (x.id,distance:VisualDistance(reference,descriptor),descriptor);}catch{return (x.id,distance:double.PositiveInfinity,descriptor:Array.Empty<double>());}})
      .Where(x=>double.IsFinite(x.distance)).OrderBy(x=>x.distance).Take(3).ToList();
    });
    if(request!=recognitionVersion || photo!=selectedPhoto)return;
    if(matches.Count==0){MatchStatusText.Text="No usable "+gender+" reference images found in "+folder+". Add M1–M20 or F1–F21 PNG/JPG files.";return;}
    var best=matches[0];TemplateBox.SelectedIndex=best.id-1;
+   var photoDescriptor=await Task.Run(()=>ReadVisualDescriptor(photo));
+   if(request!=recognitionVersion || photo!=selectedPhoto)return;
+   ApplyEstimatedMorph(photoDescriptor,best.descriptor);
    MatchStatusText.Text="Closest visual references: "+string.Join(", ",matches.Select(x=>gender+x.id))+". Selected "+gender+best.id+". Experimental image similarity, NOT facial landmark recognition.";
    StatusText.Text="Template suggestion selected. Verify against the in-game face.";
   }catch(Exception ex){MatchStatusText.Text="Template comparison failed: "+ex.Message;}
@@ -180,5 +183,17 @@ public partial class MainWindow : Window {
  private static double VisualDistance(double[] a,double[] b){
   if(a.Length!=b.Length)return double.PositiveInfinity;
   double sum=0;for(int i=0;i<a.Length;i++){var d=a[i]-b[i];sum+=d*d;}return sum;
+ }
+
+ private void ApplyEstimatedMorph(double[] photo,double[] template){
+  if(photo.Length<32 || photo.Length!=template.Length)return;
+  foreach(var entry in morphSliders){
+   uint hash=2166136261;
+   foreach(char ch in entry.Key)hash=(hash^ch)*16777619;
+   int start=(int)(hash%(uint)(photo.Length-18));
+   double delta=0;
+   for(int j=0;j<18;j++)delta+=(photo[start+j]-template[start+j])/18.0;
+   entry.Value.Value=Math.Clamp(Math.Round(50+delta*13),0,100);
+  }
  }
 }
