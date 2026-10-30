@@ -255,7 +255,7 @@ public partial class MainWindow : Window {
    for(int d=0;d<band;d++){
     int x1=ax+(aLeft?d:-d),x2=bx+(bLeft?d:-d);
     if(x1<0||x1>=a.Width||x2<0||x2>=b.Width)break;
-    var p=a.At<OpenCvSharp.Vec4b>(ay,x1),q=b.At<OpenCvSharp.Vec4b>(by,x2);
+    var p=a.At<OpenCvSharp.Vec4b>(ay,x1);var q=b.At<OpenCvSharp.Vec4b>(by,x2);
     if(p.Item3<128||q.Item3<128)break;
     double t=1.0-(double)d/band;t=t*t*(3-2*t);
     a.Set(ay,x1,new OpenCvSharp.Vec4b((byte)(p.Item0*(1-t)+seam[0]*t),(byte)(p.Item1*(1-t)+seam[1]*t),(byte)(p.Item2*(1-t)+seam[2]*t),p.Item3));
