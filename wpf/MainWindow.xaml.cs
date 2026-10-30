@@ -164,11 +164,10 @@ public partial class MainWindow : Window {
     double chin=c==0?chinSkin.Item0:c==1?chinSkin.Item1:chinSkin.Item2;
     tone[c]=0.80*(l*(1-u)+rr*u)+0.20*(forehead*(1-v)+chin*v);
    }
-   // Elliptical feathered facial-detail region with an upper boundary below
-   // the hairline. It never retains the full source photo or its background.
-   double dx=(x-410.0)/230.0,dy=(y-475.0)/285.0;
-   double dist=Math.Sqrt(dx*dx+dy*dy);
-   double alpha=Math.Clamp((1.0-dist)/0.16,0,1);
+   // Rectangular, feathered facial-detail region: no oval portrait vignette.
+   double edgeX=Math.Min(x-205.0,615.0-x);
+   double edgeY=Math.Min(y-275.0,685.0-y);
+   double alpha=Math.Clamp(Math.Min(edgeX/75.0,edgeY/75.0),0,1);
    alpha=alpha*alpha*(3-2*alpha);
    var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
    texture.Set(y,x,new OpenCvSharp.Vec3b(
