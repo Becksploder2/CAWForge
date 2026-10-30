@@ -308,9 +308,49 @@ public partial class MainWindow : Window {
    byte C(byte v)=>(byte)Math.Clamp((v-128)*1.055*light+128,0,255);
    result.Set(y,x,new OpenCvSharp.Vec4b(C(p.Item0),C(p.Item1),C(p.Item2),soft.At<byte>(y,x)));
   }
-  // Center the isolated character on a transparent 1024-square canvas.
+  // Select the dominant central connected subject, excluding isolated HUD
+  // prompts and floating menu elements. Preserve all limbs within the mask.
+  using var binary=new Mat();Cv2.Threshold(soft,binary,128,255,OpenCvSharp.ThresholdTypes.Binary);
+  using var labels=new Mat();using var stats=new Mat();using var centroids=new Mat();
+  int components=Cv2.ConnectedComponentsWithStats(binary,labels,stats,centroids,8,OpenCvSharp.MatType.CV_32S);
+  int chosen=-1;double bestScore=0;
+  for(int i=1;i<components;i++){
+   int x=stats.At<int>(i,(int)OpenCvSharp.ConnectedComponentsTypes.Left);
+   int y=stats.At<int>(i,(int)OpenCvSharp.ConnectedComponentsTypes.Top);
+   int ww=stats.At<int>(i,(int)OpenCvSharp.ConnectedComponentsTypes.Width);
+   int hh=stats.At<int>(i,(int)OpenCvSharp.ConnectedComponentsTypes.Height);
+   int area=stats.At<int>(i,(int)OpenCvSharp.ConnectedComponentsTypes.Area);
+   double cx=(x+ww/2.0)/w,cy=(y+hh/2.0)/h;
+   double centrality=1.0/(1.0+2.0*Math.Abs(cx-0.5)+Math.Abs(cy-0.5));
+   double score=area*centrality;
+   if(hh<h*0.15||area<200)continue;
+   if(score>bestScore){bestScore=score;chosen=i;}
+  }
+  if(chosen<0)throw new InvalidDataException("No complete character was isolated. Try a screenshot with a plain backdrop.");
+  int bx=stats.At<int>(chosen,(int)OpenCvSharp.ConnectedComponentsTypes.Left);
+  int by=stats.At<int>(chosen,(int)OpenCvSharp.ConnectedComponentsTypes.Top);
+  int bw=stats.At<int>(chosen,(int)OpenCvSharp.ConnectedComponentsTypes.Width);
+  int bh=stats.At<int>(chosen,(int)OpenCvSharp.ConnectedComponentsTypes.Height);
+  if(bw>=w-2||bh>=h-2)throw new InvalidDataException("Background isolation included the entire screenshot. Use a plain in-game background for a clean render.");
+  // Only retain pixels belonging to the selected connected character.
+  for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+   if(labels.At<int>(y,x)!=chosen){
+    var pixel=result.At<OpenCvSharp.Vec4b>(y,x);
+    result.Set(y,x,new OpenCvSharp.Vec4b(pixel.Item0,pixel.Item1,pixel.Item2,0));
+   }
+  }
+  // Scale the isolated subject to occupy up to 88% of the render, without
+  // clipping any visible arm, hand, boot, hair or accessory.
+  int margin=Math.Max(8,(int)(Math.Max(bw,bh)*0.025));
+  bx=Math.Max(0,bx-margin);by=Math.Max(0,by-margin);
+  bw=Math.Min(w-bx,bw+2*margin);bh=Math.Min(h-by,bh+2*margin);
+  double scale=Math.Min(900.0/bw,900.0/bh);
+  int outW=Math.Clamp((int)Math.Round(bw*scale),1,900);
+  int outH=Math.Clamp((int)Math.Round(bh*scale),1,900);
+  using var subject=new Mat(result,new OpenCvSharp.Rect(bx,by,bw,bh));
+  using var enlarged=new Mat();Cv2.Resize(subject,enlarged,new OpenCvSharp.Size(outW,outH),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
   using var canvas=new Mat(new OpenCvSharp.Size(1024,1024),OpenCvSharp.MatType.CV_8UC4,new OpenCvSharp.Scalar(0,0,0,0));
-  using(var region=new Mat(canvas,new OpenCvSharp.Rect((1024-w)/2,(1024-h)/2,w,h)))result.CopyTo(region);
+  using(var region=new Mat(canvas,new OpenCvSharp.Rect((1024-outW)/2,(1024-outH)/2,outW,outH)))enlarged.CopyTo(region);
   Cv2.ImEncode(".png",canvas,out var bytes);return bytes;
  }
  private string? frontAttire,backAttire,leftAttire,rightAttire;
