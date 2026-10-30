@@ -52,7 +52,18 @@ public partial class MainWindow : Window {
   if(dlg.ShowDialog(this)!=true)return;
   try {
    var lines=new List<string>{"CAWForge WPF Morph Sheet","Character template: "+(GenderBox.SelectedIndex==0?"M":"F")+(TemplateBox.SelectedIndex+1),"Reference: "+(selectedPhoto is null?"None":Path.GetFileName(selectedPhoto)),"","Slider values (0-100):"};
-   foreach(var entry in morphSliders)lines.Add(entry.Key+": "+Math.Round(entry.Value.Value));
+   string? currentCategory=null;
+   foreach(var entry in morphSliders){
+    int separator=entry.Key.IndexOf(" / ",StringComparison.Ordinal);
+    string category=separator>=0?entry.Key[..separator]:"Other";
+    string sliderName=separator>=0?entry.Key[(separator+3)..]:entry.Key;
+    if(!string.Equals(category,currentCategory,StringComparison.Ordinal)){
+     if(currentCategory is not null)lines.Add("");
+     lines.Add("## "+category);
+     currentCategory=category;
+    }
+    lines.Add(sliderName+": "+Math.Round(entry.Value.Value));
+   }
    File.WriteAllLines(dlg.FileName,lines);StatusText.Text="Morph sheet saved: "+dlg.FileName;
   }catch(Exception ex){MessageBox.Show(this,ex.Message,"Export error",MessageBoxButton.OK,MessageBoxImage.Error);}
  }
