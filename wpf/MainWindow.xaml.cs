@@ -120,52 +120,45 @@ public partial class MainWindow : Window {
    if(found.Length==0)throw new InvalidDataException("No frontal face detected. Use a clear, straight-on reference photograph.");
    face=found.OrderByDescending(f=>f.Width*f.Height).First();
   }
-  // Place the facial region on a fixed UV-style canvas: brows around y=285,
-  // nose near y=450, lips near y=610. Expand into forehead and chin.
-  int left=Math.Max(0,(int)(face.X-face.Width*0.22));
-  int top=Math.Max(0,(int)(face.Y-face.Height*0.36));
-  int right=Math.Min(src.Width,(int)(face.Right+face.Width*0.22));
-  int bottom=Math.Min(src.Height,(int)(face.Bottom+face.Height*0.19));
+  // Frame only the detected face. The former wide crop included clothing,
+  // water bottles and stadium seating; none belong in a UV face texture.
+  int left=Math.Max(0,(int)(face.X-face.Width*0.10));
+  int top=Math.Max(0,(int)(face.Y-face.Height*0.16));
+  int right=Math.Min(src.Width,(int)(face.Right+face.Width*0.10));
+  int bottom=Math.Min(src.Height,(int)(face.Bottom+face.Height*0.10));
   if(right-left<32||bottom-top<32)throw new InvalidDataException("Detected face is too small for texture generation.");
   using var crop=new Mat(src,new OpenCvSharp.Rect(left,top,right-left,bottom-top));
   using var aligned=new Mat();
   Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820));
-  // Preserve the central face. Everything beyond its safe interior is
-  // reconstructed from sampled facial skin, never mirrored source pixels.
-  // Source pixels outside the safe area cannot leak hair or scenery.
+  // Use genuine cheek skin for a seamless, full-canvas underskin. Never
+  // mirror the photo, preserve its original background, or paste an oval.
+  // Facial detail is composited only where the image plausibly contains skin.
+  var cheekA=aligned.At<OpenCvSharp.Vec3b>(490,255);
+  var cheekB=aligned.At<OpenCvSharp.Vec3b>(490,565);
+  var browSkin=aligned.At<OpenCvSharp.Vec3b>(245,410);
+  var chinSkin=aligned.At<OpenCvSharp.Vec3b>(685,410);
   using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
-  var cheekLeft=aligned.At<OpenCvSharp.Vec3b>(505,275);
-  var cheekRight=aligned.At<OpenCvSharp.Vec3b>(505,545);
-  var forehead=aligned.At<OpenCvSharp.Vec3b>(225,410);
-  var chin=aligned.At<OpenCvSharp.Vec3b>(670,410);
-  // Large blurred skin sample supplies subtle natural texture, without
-  // copying eyes, hair, ears or photographic background into the underskin.
-  using var skinPatch=new Mat(aligned,new OpenCvSharp.Rect(275,480,270,125));
-  using var skinBlur=new Mat();
-  Cv2.GaussianBlur(skinPatch,skinBlur,new OpenCvSharp.Size(0,0),28);
   for(int y=0;y<820;y++)for(int x=0;x<820;x++){
-   double side=Math.Clamp((x-165.0)/110.0,0,1)*Math.Clamp((655.0-x)/110.0,0,1);
-   double upper=Math.Clamp((y-205.0)/90.0,0,1);
-   double lower=Math.Clamp((735.0-y)/90.0,0,1);
-   double alpha=side*upper*lower;
-   alpha=alpha*alpha*(3.0-2.0*alpha);
-   double lateral=Math.Clamp(x/819.0,0,1);
-   double vertical=Math.Clamp(y/819.0,0,1);
-   double[] skinTone=new double[3];
-   var patch=skinBlur.At<OpenCvSharp.Vec3b>((y*17)%skinBlur.Rows,(x*13)%skinBlur.Cols);
+   double u=x/819.0,v=y/819.0;
+   double[] baseTone=new double[3];
    for(int c=0;c<3;c++){
-    double leftTone=c==0?cheekLeft.Item0:c==1?cheekLeft.Item1:cheekLeft.Item2;
-    double rightTone=c==0?cheekRight.Item0:c==1?cheekRight.Item1:cheekRight.Item2;
-    double topTone=c==0?forehead.Item0:c==1?forehead.Item1:forehead.Item2;
-    double bottomTone=c==0?chin.Item0:c==1?chin.Item1:chin.Item2;
-    double patchTone=c==0?patch.Item0:c==1?patch.Item1:patch.Item2;
-    skinTone[c]=0.65*(leftTone*(1-lateral)+rightTone*lateral)+0.25*(topTone*(1-vertical)+bottomTone*vertical)+0.10*patchTone;
+    double l=c==0?cheekA.Item0:c==1?cheekA.Item1:cheekA.Item2;
+    double rr=c==0?cheekB.Item0:c==1?cheekB.Item1:cheekB.Item2;
+    double forehead=c==0?browSkin.Item0:c==1?browSkin.Item1:browSkin.Item2;
+    double chin=c==0?chinSkin.Item0:c==1?chinSkin.Item1:chinSkin.Item2;
+    baseTone[c]=0.72*(l*(1-u)+rr*u)+0.28*(forehead*(1-v)+chin*v);
    }
-   var facePixel=aligned.At<OpenCvSharp.Vec3b>(y,x);
+   // Fade into sampled skin on all four edges. No reflection or circular
+   // photo boundary. Constrain top and sides to avoid source hair and ears.
+   double h=Math.Clamp((x-215.0)/90.0,0,1)*Math.Clamp((605.0-x)/90.0,0,1);
+   double vMask=Math.Clamp((y-255.0)/95.0,0,1)*Math.Clamp((690.0-y)/85.0,0,1);
+   double alpha=h*vMask;
+   alpha=alpha*alpha*(3-2*alpha);
+   var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
    texture.Set(y,x,new OpenCvSharp.Vec3b(
-    (byte)Math.Clamp(facePixel.Item0*alpha+skinTone[0]*(1-alpha),0,255),
-    (byte)Math.Clamp(facePixel.Item1*alpha+skinTone[1]*(1-alpha),0,255),
-    (byte)Math.Clamp(facePixel.Item2*alpha+skinTone[2]*(1-alpha),0,255)));
+    (byte)Math.Clamp(p.Item0*alpha+baseTone[0]*(1-alpha),0,255),
+    (byte)Math.Clamp(p.Item1*alpha+baseTone[1]*(1-alpha),0,255),
+    (byte)Math.Clamp(p.Item2*alpha+baseTone[2]*(1-alpha),0,255)));
   }
   Cv2.ImEncode(".png",texture,out var bytes);
   return bytes;
