@@ -19,6 +19,19 @@ jobs:
           if ((Get-Item dist/Models/haarcascade_frontalface_default.xml).Length -lt 100000) { throw "Face classifier download is incomplete." }
       - name: Publish standalone WPF app
         run: dotnet publish wpf/CAWForge.Wpf.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
+      - name: Bundle local Real-ESRGAN Vulkan upscaler
+        shell: pwsh
+        run: |
+          $url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip"
+          Invoke-WebRequest -Uri $url -OutFile realesrgan-windows.zip
+          Expand-Archive realesrgan-windows.zip -DestinationPath realesrgan-extracted -Force
+          $exe = Get-ChildItem realesrgan-extracted -Recurse -Filter realesrgan-ncnn-vulkan.exe | Select-Object -First 1
+          if (-not $exe) { throw "Real-ESRGAN executable missing from release." }
+          $models = Join-Path $exe.Directory.FullName "models"
+          if (-not (Test-Path $models)) { throw "Real-ESRGAN models missing from release." }
+          New-Item -ItemType Directory -Force -Path dist/AI | Out-Null
+          Copy-Item (Join-Path $exe.Directory.FullName "*") dist/AI -Recurse -Force
+          if (-not (Test-Path dist/AI/models/realesrgan-x4plus.param)) { throw "AI model files missing." }
       - name: Prepare optional template reference folder
         shell: pwsh
         run: |
