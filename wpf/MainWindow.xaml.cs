@@ -86,7 +86,8 @@ public partial class MainWindow : Window {
   StatusText.Text="Generating 820 × 820 face texture…";
   try{
    var source=selectedPhoto;
-   var png=await Task.Run(()=>MakeFaceTexture(source));
+   int upscale=FaceUpscaleBox.SelectedIndex==1?2:FaceUpscaleBox.SelectedIndex==2?4:1;
+   var png=await Task.Run(()=>MakeFaceTexture(source,upscale));
    if(png.Length==0)throw new InvalidDataException("The generated PNG is empty.");
    // Write atomically to avoid leaving behind a damaged partial PNG.
    var folder=Path.GetDirectoryName(output);
@@ -107,7 +108,7 @@ public partial class MainWindow : Window {
    MessageBox.Show(this,"Could not save the face texture.\\n\\n"+ex.Message+"\\n\\nTry a local folder such as Pictures.","Face texture export failed",MessageBoxButton.OK,MessageBoxImage.Error);
   }
  }
- private static byte[] MakeFaceTexture(string path){
+ private static byte[] MakeFaceTexture(string path,int upscale=1){
   using var src=Cv2.ImRead(path,ImreadModes.Color);
   if(src.Empty())throw new InvalidDataException("Unable to decode reference photo.");
   if((long)src.Width*src.Height>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");
@@ -129,7 +130,30 @@ public partial class MainWindow : Window {
   if(right-left<32||bottom-top<32)throw new InvalidDataException("Detected face is too small for texture generation.");
   using var crop=new Mat(src,new OpenCvSharp.Rect(left,top,right-left,bottom-top));
   using var aligned=new Mat();
-  Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+  if(upscale>1){
+   var tool=Path.Combine(AppContext.BaseDirectory,"AI","realesrgan-ncnn-vulkan.exe");
+   var modelFolder=Path.Combine(AppContext.BaseDirectory,"AI","models");
+   if(!File.Exists(tool)||!Directory.Exists(modelFolder))throw new FileNotFoundException("Local AI upscaler files are missing from this build. Reinstall the full Windows artifact or select Original resolution.");
+   string tempDir=Path.Combine(Path.GetTempPath(),"CAWForge-Upscale-"+Guid.NewGuid().ToString("N"));
+   Directory.CreateDirectory(tempDir);
+   try{
+    string input=Path.Combine(tempDir,"face.png"),output=Path.Combine(tempDir,"enhanced.png");
+    Cv2.ImWrite(input,crop);
+    var start=new System.Diagnostics.ProcessStartInfo(tool){
+     Arguments="-i \\""+input+"\\" -o \\""+output+"\\" -n realesrgan-x4plus -s "+upscale+" -m \\""+modelFolder+"\\" -f png",
+     UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true,RedirectStandardOutput=true,
+     WorkingDirectory=Path.GetDirectoryName(tool)!
+    };
+    using var process=System.Diagnostics.Process.Start(start)??throw new IOException("Could not start the local AI upscaler.");
+    if(!process.WaitForExit(120000)){process.Kill(true);throw new TimeoutException("AI upscaling exceeded two minutes.");}
+    if(process.ExitCode!=0||!File.Exists(output))throw new IOException("AI upscaling failed (exit "+process.ExitCode+"). Check Vulkan driver compatibility or choose Original resolution.");
+    using var enhanced=Cv2.ImRead(output,ImreadModes.Color);
+    if(enhanced.Empty())throw new IOException("AI upscaler returned an invalid image.");
+    Cv2.Resize(enhanced,aligned,new OpenCvSharp.Size(820,820),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+   }finally{try{Directory.Delete(tempDir,true);}catch{}}
+  }else{
+   Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+  }
   // Improve fine facial texture before compositing. Enhance local luminance
   // (pores, freckles, lips and eye details) without exaggerating skin color.
   using(var lab=new Mat()){
