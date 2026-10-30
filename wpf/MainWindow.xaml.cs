@@ -250,7 +250,8 @@ public partial class MainWindow : Window {
   var originals=paths.Select(p=>Cv2.ImRead(p,OpenCvSharp.ImreadModes.Unchanged)).ToArray();
   try{
    if(originals.Any(m=>m.Empty()))throw new InvalidDataException("Could not read one of the four textures.");
-   if(originals.Any(m=>m.Channels()!=4))throw new InvalidDataException("Four transparent PNGs (RGBA) are required. JPG or flattened textures cannot define garment seams.");
+   // Accept opaque black-backed texture previews as well as transparent PNGs.
+   foreach(var m in originals)if(m.Channels()!=4)throw new InvalidDataException("Use four-channel PNGs for garment-safe export. Import transparent PNGs, not screenshots.");
    int w=originals[0].Width,h=originals[0].Height;
    if(w<32||h<32||w>4096||h>4096)throw new InvalidDataException("Front dimensions must be 32–4096 pixels.");
    // Preserve each source image's original size and alpha for WWE texture import.
@@ -259,9 +260,13 @@ public partial class MainWindow : Window {
    // Left panel joins the left silhouette of front and the right silhouette of back.
    // Right panel joins the right silhouette of front and the left silhouette of back.
    // Each edge is found per scanline from the alpha mask, not the canvas border.
+   AlignSidePattern(bk,ls,false,true,blend);
    JoinSilhouette(bk,ls,false,true,blend);
+   AlignSidePattern(ls,f,false,true,blend);
    JoinSilhouette(ls,f,false,true,blend);
+   AlignSidePattern(f,rs,false,true,blend);
    JoinSilhouette(f,rs,false,true,blend);
+   AlignSidePattern(rs,bk,false,true,blend);
    JoinSilhouette(rs,bk,false,true,blend);
    var result=new byte[5][];
    for(int i=0;i<4;i++)Cv2.ImEncode(".png",originals[i],out result[i]);
@@ -281,6 +286,48 @@ public partial class MainWindow : Window {
    }
    Cv2.ImEncode(".png",sheet,out result[4]);return result;
   }finally{foreach(var m in originals)m.Dispose();}
+ }
+ private static void AlignSidePattern(Mat a,Mat b,bool aLeft,bool bLeft,int blend){
+  // Determine a vertical offset from edge color features. Restrict the
+  // adjustment to a side panel's near-seam band, preserving its UV silhouette.
+  // This is heuristic pattern alignment, not a calibrated WWE UV map.
+  int maxShift=Math.Min(28,Math.Min(a.Height,b.Height)/10);
+  double best=double.MaxValue;int shift=0;
+  for(int dy=-maxShift;dy<=maxShift;dy+=2){
+   double error=0;int count=0;
+   for(int row=0;row<Math.Min(a.Height,b.Height);row+=4){
+    int other=row+dy;if(other<0||other>=b.Height)continue;
+    int x=FindSilhouetteEdge(a,row,aLeft),z=FindSilhouetteEdge(b,other,bLeft);
+    if(x<0||z<0)continue;
+    var p=a.At<OpenCvSharp.Vec4b>(row,x);var q=b.At<OpenCvSharp.Vec4b>(other,z);
+    if(p.Item3<128||q.Item3<128)continue;
+    error+=Math.Abs((int)p.Item0-q.Item0)+Math.Abs((int)p.Item1-q.Item1)+Math.Abs((int)p.Item2-q.Item2);count++;
+   }
+   if(count<12)continue;
+   double score=error/count+Math.Abs(dy)*0.7;
+   if(score<best){best=score;shift=dy;}
+  }
+  if(shift==0||!double.IsFinite(best))return;
+  // Shift RGB details vertically only inside the seam strip. Keep alpha and
+  // garment silhouette unchanged; feather the adjustment into the interior.
+  using var original=b.Clone();
+  int width=Math.Min(Math.Max(4,blend*3),b.Width/3);
+  for(int y=0;y<b.Height;y++){
+   int edge=FindSilhouetteEdge(b,y,bLeft);if(edge<0)continue;
+   int srcY=Math.Clamp(y+shift,0,b.Height-1);
+   int sourceEdge=FindSilhouetteEdge(original,srcY,bLeft);if(sourceEdge<0)continue;
+   for(int d=0;d<width;d++){
+    int x=edge+(bLeft?d:-d),sx=sourceEdge+(bLeft?d:-d);
+    if(x<0||x>=b.Width||sx<0||sx>=b.Width)break;
+    var current=b.At<OpenCvSharp.Vec4b>(y,x),source=original.At<OpenCvSharp.Vec4b>(srcY,sx);
+    if(current.Item3<128||source.Item3<128)continue;
+    double weight=1.0-(double)d/width;weight=weight*weight*(3-2*weight);
+    b.Set(y,x,new OpenCvSharp.Vec4b(
+     (byte)(current.Item0*(1-weight)+source.Item0*weight),
+     (byte)(current.Item1*(1-weight)+source.Item1*weight),
+     (byte)(current.Item2*(1-weight)+source.Item2*weight),current.Item3));
+   }
+  }
  }
  private static void JoinSilhouette(Mat a,Mat b,bool aLeft,bool bLeft,int blend){
   // Pair rows by proportional vertical position; do not alter transparency,
