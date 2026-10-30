@@ -270,12 +270,8 @@ public partial class MainWindow : Window {
   // Letterbox the entire screenshot, retaining its aspect ratio and all pixels.
   int fitW=Math.Max(1,(int)Math.Round(source.Width*Math.Min(1024.0/source.Width,1024.0/source.Height)));
   int fitH=Math.Max(1,(int)Math.Round(source.Height*Math.Min(1024.0/source.Width,1024.0/source.Height)));
-  using var rgb=new Mat(new OpenCvSharp.Size(1024,1024),OpenCvSharp.MatType.CV_8UC3,new OpenCvSharp.Scalar(0,0,0));
-  using(var scaled=new Mat()){
-   Cv2.Resize(source,scaled,new OpenCvSharp.Size(fitW,fitH),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
-   using var target=new Mat(rgb,new OpenCvSharp.Rect((1024-fitW)/2,(1024-fitH)/2,fitW,fitH));
-   scaled.CopyTo(target);
-  }
+  using var rgb=new Mat();
+  Cv2.Resize(source,rgb,new OpenCvSharp.Size(fitW,fitH),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
   // Connected flood-fill from image borders identifies a roughly uniform
   // game backdrop. A complex arena may need a dedicated segmentation model.
   int w=rgb.Width,h=rgb.Height;
@@ -312,7 +308,10 @@ public partial class MainWindow : Window {
    byte C(byte v)=>(byte)Math.Clamp((v-128)*1.055*light+128,0,255);
    result.Set(y,x,new OpenCvSharp.Vec4b(C(p.Item0),C(p.Item1),C(p.Item2),soft.At<byte>(y,x)));
   }
-  Cv2.ImEncode(".png",result,out var bytes);return bytes;
+  // Center the isolated character on a transparent 1024-square canvas.
+  using var canvas=new Mat(new OpenCvSharp.Size(1024,1024),OpenCvSharp.MatType.CV_8UC4,new OpenCvSharp.Scalar(0,0,0,0));
+  using(var region=new Mat(canvas,new OpenCvSharp.Rect((1024-w)/2,(1024-h)/2,w,h)))result.CopyTo(region);
+  Cv2.ImEncode(".png",canvas,out var bytes);return bytes;
  }
  private string? frontAttire,backAttire,leftAttire,rightAttire;
  private string? PickPanel(string label){var d=new OpenFileDialog{Title="Choose "+label+" attire texture",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp",CheckFileExists=true};return d.ShowDialog(this)==true?d.FileName:null;}
