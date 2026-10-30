@@ -226,9 +226,28 @@ public partial class MainWindow : Window {
  }
 
  private string? renderPhoto;
- private void ImportRender_Click(object sender,RoutedEventArgs e){
+ private byte[]? preparedRender;
+ private static BitmapImage PreviewPng(byte[] png){
+  using var stream=new MemoryStream(png);
+  var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=stream;image.EndInit();image.Freeze();return image;
+ }
+ private async void ImportRender_Click(object sender,RoutedEventArgs e){
   var dlg=new OpenFileDialog{Title="Choose in-game CAW screenshot",Filter="Image files|*.png;*.jpg;*.jpeg;*.bmp",CheckFileExists=true};
-  if(dlg.ShowDialog(this)==true){renderPhoto=dlg.FileName;RenderFileText.Text=Path.GetFileName(renderPhoto);}
+  if(dlg.ShowDialog(this)!=true)return;
+  renderPhoto=dlg.FileName;preparedRender=null;
+  RenderFileText.Text=Path.GetFileName(renderPhoto)+" — removing background…";
+  StatusText.Text="Removing background from imported CAW screenshot…";
+  try{
+   string path=renderPhoto;int threshold=(int)RenderThreshold.Value;
+   preparedRender=await Task.Run(()=>CreateStudioRender(path,threshold));
+   RenderPreview.Source=PreviewPng(preparedRender);
+   RenderFileText.Text=Path.GetFileName(path)+" — transparent preview ready";
+   StatusText.Text="Background removed. Inspect the preview before exporting.";
+  }catch(Exception ex){
+   RenderFileText.Text="Background removal failed: "+ex.Message;
+   StatusText.Text="Render import failed.";
+   MessageBox.Show(this,ex.Message,"Render Creator",MessageBoxButton.OK,MessageBoxImage.Error);
+  }
  }
  private async void GenerateRender_Click(object sender,RoutedEventArgs e){
   if(renderPhoto==null){MessageBox.Show(this,"Import an in-game CAW screenshot first.");return;}
@@ -237,11 +256,9 @@ public partial class MainWindow : Window {
   try{
    StatusText.Text="Creating transparent studio render…";
    var path=renderPhoto;int threshold=(int)RenderThreshold.Value;
-   byte[] png=await Task.Run(()=>CreateStudioRender(path,threshold));
+   byte[] png=preparedRender??await Task.Run(()=>CreateStudioRender(path,threshold));
    await File.WriteAllBytesAsync(dlg.FileName,png);
-   using var stream=new MemoryStream(png);
-   var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=stream;image.EndInit();image.Freeze();
-   RenderPreview.Source=image;
+   RenderPreview.Source=PreviewPng(png);
    StatusText.Text="Render saved: "+dlg.FileName;
   }catch(Exception ex){StatusText.Text="Render failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Render Creator",MessageBoxButton.OK,MessageBoxImage.Error);}
  }
@@ -249,11 +266,16 @@ public partial class MainWindow : Window {
   using var source=Cv2.ImRead(path,ImreadModes.Color);
   if(source.Empty())throw new InvalidDataException("Unable to open screenshot.");
   if((long)source.Width*source.Height>35000000)throw new InvalidDataException("Screenshot is too large.");
-  // Center-crop to a portrait frame, keeping the whole CAW when possible.
-  int cropW=Math.Min(source.Width,(int)(source.Height*0.88));
-  int cropX=(source.Width-cropW)/2;
-  using var crop=new Mat(source,new OpenCvSharp.Rect(cropX,0,cropW,source.Height));
-  using var rgb=new Mat();Cv2.Resize(crop,rgb,new OpenCvSharp.Size(1024,1024),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+  // NEVER center-crop: that previously cut off extended arms, hands and gear.
+  // Letterbox the entire screenshot, retaining its aspect ratio and all pixels.
+  int fitW=Math.Max(1,(int)Math.Round(source.Width*Math.Min(1024.0/source.Width,1024.0/source.Height)));
+  int fitH=Math.Max(1,(int)Math.Round(source.Height*Math.Min(1024.0/source.Width,1024.0/source.Height)));
+  using var rgb=new Mat(new OpenCvSharp.Size(1024,1024),OpenCvSharp.MatType.CV_8UC3,new OpenCvSharp.Scalar(0,0,0));
+  using(var scaled=new Mat()){
+   Cv2.Resize(source,scaled,new OpenCvSharp.Size(fitW,fitH),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+   using var target=new Mat(rgb,new OpenCvSharp.Rect((1024-fitW)/2,(1024-fitH)/2,fitW,fitH));
+   scaled.CopyTo(target);
+  }
   // Connected flood-fill from image borders identifies a roughly uniform
   // game backdrop. A complex arena may need a dedicated segmentation model.
   int w=rgb.Width,h=rgb.Height;
