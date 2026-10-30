@@ -71,19 +71,41 @@ public partial class MainWindow : Window {
   }catch(Exception ex){MessageBox.Show(this,ex.Message,"Export error",MessageBoxButton.OK,MessageBoxImage.Error);}
  }
  private async void GenerateTexture_Click(object sender,RoutedEventArgs e) {
-  if(selectedPhoto is null){MessageBox.Show(this,"Import a reference photo in Morph Settings first.");return;}
-  var dlg=new SaveFileDialog{Title="Save generated face texture",Filter="PNG image|*.png",FileName="CAWForge-Face-Texture-820.png"};
+  if(selectedPhoto is null){MessageBox.Show(this,"Import a reference photo in Morph Settings first.","Face texture",MessageBoxButton.OK,MessageBoxImage.Information);return;}
+  string pictures=Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+  if(string.IsNullOrWhiteSpace(pictures)||!Directory.Exists(pictures))pictures=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+  var dlg=new SaveFileDialog{
+   Title="Save WWE 2K26 face texture",
+   Filter="PNG image (*.png)|*.png",
+   DefaultExt=".png",AddExtension=true,OverwritePrompt=true,
+   FileName="CAWForge-Face-Texture-820.png",
+   InitialDirectory=pictures
+  };
   if(dlg.ShowDialog(this)!=true)return;
-  StatusText.Text="Generating blended 820 × 820 face texture…";
+  var output=Path.GetFullPath(dlg.FileName);
+  StatusText.Text="Generating 820 × 820 face texture…";
   try{
-   var source=selectedPhoto;var output=dlg.FileName;
+   var source=selectedPhoto;
    var png=await Task.Run(()=>MakeFaceTexture(source));
-   await File.WriteAllBytesAsync(output,png);
+   if(png.Length==0)throw new InvalidDataException("The generated PNG is empty.");
+   // Write atomically to avoid leaving behind a damaged partial PNG.
+   var folder=Path.GetDirectoryName(output);
+   if(string.IsNullOrWhiteSpace(folder)||!Directory.Exists(folder))throw new DirectoryNotFoundException("The selected output folder does not exist.");
+   var temporary=Path.Combine(folder,"."+Guid.NewGuid().ToString("N")+".tmp");
+   try{
+    await File.WriteAllBytesAsync(temporary,png);
+    File.Move(temporary,output,true);
+   }finally{if(File.Exists(temporary))File.Delete(temporary);}
+   if(!File.Exists(output)||new FileInfo(output).Length!=png.Length)throw new IOException("The saved PNG could not be verified.");
    using var ms=new MemoryStream(png);
    var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
    TexturePreview.Source=preview;
-   StatusText.Text="Face texture saved with matching underskin and no mirrored extension. Inspect the preview before importing.";
-  }catch(Exception ex){StatusText.Text="Face texture generation failed.";MessageBox.Show(this,ex.Message,"Face texture error",MessageBoxButton.OK,MessageBoxImage.Error);}
+   StatusText.Text="Face texture saved to: "+output;
+   MessageBox.Show(this,"Face texture saved successfully:\\n"+output,"Export complete",MessageBoxButton.OK,MessageBoxImage.Information);
+  }catch(Exception ex){
+   StatusText.Text="Face texture save failed: "+ex.Message;
+   MessageBox.Show(this,"Could not save the face texture.\\n\\n"+ex.Message+"\\n\\nTry a local folder such as Pictures.","Face texture export failed",MessageBoxButton.OK,MessageBoxImage.Error);
+  }
  }
  private static byte[] MakeFaceTexture(string path){
   using var src=Cv2.ImRead(path,ImreadModes.Color);
