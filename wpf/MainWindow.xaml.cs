@@ -140,7 +140,7 @@ public partial class MainWindow : Window {
     string input=Path.Combine(tempDir,"face.png"),output=Path.Combine(tempDir,"enhanced.png");
     Cv2.ImWrite(input,crop);
     var start=new System.Diagnostics.ProcessStartInfo(tool){
-     Arguments="-i \\""+input+"\\" -o \\""+output+"\\" -n realesrgan-x4plus -s "+upscale+" -m \\""+modelFolder+"\\" -f png",
+     Arguments=$"-i \"{input}\" -o \"{output}\" -n realesrgan-x4plus -s {upscale} -m \"{modelFolder}\" -f png",
      UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true,RedirectStandardOutput=true,
      WorkingDirectory=Path.GetDirectoryName(tool)!
     };
