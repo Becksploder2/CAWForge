@@ -82,7 +82,7 @@ public partial class MainWindow : Window {
    using var ms=new MemoryStream(png);
    var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
    TexturePreview.Source=preview;
-   StatusText.Text="Full-bleed 820 × 820 face texture saved. Inspect hairline and alignment before importing.";
+   StatusText.Text="Face texture saved with matching underskin and no mirrored extension. Inspect the preview before importing.";
   }catch(Exception ex){StatusText.Text="Face texture generation failed.";MessageBox.Show(this,ex.Message,"Face texture error",MessageBoxButton.OK,MessageBoxImage.Error);}
  }
  private static byte[] MakeFaceTexture(string path){
@@ -108,38 +108,33 @@ public partial class MainWindow : Window {
   using var crop=new Mat(src,new OpenCvSharp.Rect(left,top,right-left,bottom-top));
   using var aligned=new Mat();
   Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820));
-  // Build a full-bleed skin canvas from the central facial region.
-  // Extend forehead/cheek/chin skin into every edge, rather than drawing
-  // an oval face on top of a solid background.
+  // Build matching underskin from cheek and forehead samples, never by
+  // reflecting the face. A rectangular fade keeps facial details central.
+  var samples=new[]{
+   aligned.At<OpenCvSharp.Vec3b>(490,255),
+   aligned.At<OpenCvSharp.Vec3b>(490,565),
+   aligned.At<OpenCvSharp.Vec3b>(540,260),
+   aligned.At<OpenCvSharp.Vec3b>(540,560),
+   aligned.At<OpenCvSharp.Vec3b>(205,410)
+  };
+  double[] baseSkin=new double[3];
+  foreach(var p in samples){baseSkin[0]+=p.Item0;baseSkin[1]+=p.Item1;baseSkin[2]+=p.Item2;}
+  for(int c=0;c<3;c++)baseSkin[c]/=samples.Length;
   using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
-  const int leftEdge=170,rightEdge=650,topEdge=135,bottomEdge=720;
-  for(int y=0;y<820;y++){
-   int sampleY=Math.Clamp(y,topEdge,bottomEdge);
-   for(int x=0;x<820;x++){
-    int sampleX=Math.Clamp(x,leftEdge,rightEdge);
-    // Mirrored extension retains natural skin texture beyond the face.
-    if(x<leftEdge)sampleX=Math.Min(rightEdge,leftEdge+(leftEdge-x));
-    else if(x>rightEdge)sampleX=Math.Max(leftEdge,rightEdge-(x-rightEdge));
-    if(y<topEdge)sampleY=Math.Min(bottomEdge,topEdge+(topEdge-y));
-    else if(y>bottomEdge)sampleY=Math.Max(topEdge,bottomEdge-(y-bottomEdge));
-    texture.Set(y,x,aligned.At<OpenCvSharp.Vec3b>(sampleY,sampleX));
-   }
-  }
-  // Softly blend the extended skin to the actual face in a rectangular
-  // transition, eliminating the visible circular cutout.
-  using var softened=new Mat();
-  Cv2.GaussianBlur(texture,softened,new OpenCvSharp.Size(0,0),22);
+  // The outer canvas is continuous skin tone. No mirrored eyes, lips,
+  // hair, ears or background can be introduced by the extension.
   for(int y=0;y<820;y++)for(int x=0;x<820;x++){
-   double dx=Math.Min(x-leftEdge,rightEdge-x);
-   double dy=Math.Min(y-topEdge,bottomEdge-y);
-   double mix=Math.Clamp(Math.Min(dx,dy)/38.0,0,1);
-   if(mix<=0)continue;
-   var original=aligned.At<OpenCvSharp.Vec3b>(y,x);
-   var background=softened.At<OpenCvSharp.Vec3b>(y,x);
+   // Restrict the source photograph to the central facial area.
+   // Feather the four straight edges separately to avoid an oval cutout.
+   double horizontal=Math.Clamp(Math.Min(x-180,640-x)/70.0,0,1);
+   double vertical=Math.Clamp(Math.Min(y-175,715-y)/70.0,0,1);
+   double alpha=horizontal*vertical;
+   alpha=alpha*alpha*(3-2*alpha);
+   var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
    texture.Set(y,x,new OpenCvSharp.Vec3b(
-    (byte)(original.Item0*mix+background.Item0*(1-mix)),
-    (byte)(original.Item1*mix+background.Item1*(1-mix)),
-    (byte)(original.Item2*mix+background.Item2*(1-mix))));
+    (byte)Math.Clamp(p.Item0*alpha+baseSkin[0]*(1-alpha),0,255),
+    (byte)Math.Clamp(p.Item1*alpha+baseSkin[1]*(1-alpha),0,255),
+    (byte)Math.Clamp(p.Item2*alpha+baseSkin[2]*(1-alpha),0,255)));
   }
   Cv2.ImEncode(".png",texture,out var bytes);
   return bytes;
