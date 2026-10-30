@@ -164,67 +164,65 @@ public partial class MainWindow : Window {
   return bytes;
  }
 
- private void ImportAttire_Click(object sender,RoutedEventArgs e){
-  var dlg=new OpenFileDialog{Title="Choose attire pattern",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp;*.webp",CheckFileExists=true};
-  if(dlg.ShowDialog(this)!=true)return;
-  attirePhoto=dlg.FileName;AttireFileText.Text=Path.GetFileName(attirePhoto);
-  StatusText.Text="Attire pattern selected.";
- }
+ private string? frontAttire,backAttire,leftAttire,rightAttire;
+ private string? PickPanel(string label){var d=new OpenFileDialog{Title="Choose "+label+" attire texture",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp",CheckFileExists=true};return d.ShowDialog(this)==true?d.FileName:null;}
+ private void ImportFront_Click(object sender,RoutedEventArgs e){var p=PickPanel("front");if(p!=null){frontAttire=p;FrontFileText.Text=Path.GetFileName(p);}}
+ private void ImportBack_Click(object sender,RoutedEventArgs e){var p=PickPanel("back");if(p!=null){backAttire=p;BackFileText.Text=Path.GetFileName(p);}}
+ private void ImportLeft_Click(object sender,RoutedEventArgs e){var p=PickPanel("left side");if(p!=null){leftAttire=p;LeftFileText.Text=Path.GetFileName(p);}}
+ private void ImportRight_Click(object sender,RoutedEventArgs e){var p=PickPanel("right side");if(p!=null){rightAttire=p;RightFileText.Text=Path.GetFileName(p);}}
  private async void GenerateSeams_Click(object sender,RoutedEventArgs e){
-  if(attirePhoto is null){MessageBox.Show(this,"Choose an attire pattern image first.");return;}
-  if(TopSeamCheck.IsChecked!=true && BottomSeamCheck.IsChecked!=true){MessageBox.Show(this,"Select top, bottoms, or both.");return;}
-  var folderDialog=new Microsoft.Win32.SaveFileDialog{Title="Choose output PNG name and folder",Filter="PNG image|*.png",FileName="CAWForge-Attire.png"};
-  if(folderDialog.ShowDialog(this)!=true)return;
-  var path=attirePhoto;var output=folderDialog.FileName;var mode=SeamModeBox.SelectedIndex;var blend=(int)SeamBlendSlider.Value;
-  var top=TopSeamCheck.IsChecked==true;var bottom=BottomSeamCheck.IsChecked==true;
-  GenerateSeamsButton.IsEnabled=false;StatusText.Text="Generating seamless pattern on background worker…";
+  if(new[]{frontAttire,backAttire,leftAttire,rightAttire}.Any(string.IsNullOrEmpty)){MessageBox.Show(this,"Import all four panels: front, back, left side and right side.");return;}
+  var d=new Microsoft.Win32.SaveFileDialog{Title="Choose output filename prefix",Filter="PNG image|*.png",FileName="CAWForge-Connected-Attire.png"};
+  if(d.ShowDialog(this)!=true)return;
+  var paths=new[]{frontAttire!,backAttire!,leftAttire!,rightAttire!};int blend=(int)SeamBlendSlider.Value;
+  GenerateSeamsButton.IsEnabled=false;StatusText.Text="Connecting side panels to front and back…";
   try{
-   var png=await Task.Run(()=>MakeSeamPng(path,mode,blend));
-   var directory=Path.GetDirectoryName(output)!;var basename=Path.GetFileNameWithoutExtension(output);
-   if(top)await File.WriteAllBytesAsync(Path.Combine(directory,basename+"-Top.png"),png);
-   if(bottom)await File.WriteAllBytesAsync(Path.Combine(directory,basename+"-Bottoms.png"),png);
-   using var ms=new MemoryStream(png);var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
-   AttirePreview.Source=preview;StatusText.Text="Seamless pattern PNG(s) saved. Verify placement in WWE 2K26.";
-  }catch(Exception ex){StatusText.Text="Seam generation failed";MessageBox.Show(this,ex.Message,"Attire generator",MessageBoxButton.OK,MessageBoxImage.Error);}
+   var result=await Task.Run(()=>ConnectAttirePanels(paths,blend));
+   var folder=Path.GetDirectoryName(d.FileName)!;var prefix=Path.GetFileNameWithoutExtension(d.FileName);
+   var names=new[]{"Front","Back","Left","Right"};
+   for(int i=0;i<4;i++)await File.WriteAllBytesAsync(Path.Combine(folder,prefix+"-"+names[i]+".png"),result[i]);
+   using var ms=new MemoryStream(result[4]);var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();AttirePreview.Source=preview;
+   StatusText.Text="Saved four connected PNGs in "+folder;
+   MessageBox.Show(this,"Four connected panel PNGs saved to:\n"+folder+"\n\nFront, Back, Left and Right. Check garment UV orientation in-game.","Attire seam export",MessageBoxButton.OK,MessageBoxImage.Information);
+  }catch(Exception ex){StatusText.Text="Seam connection failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Attire seam connector",MessageBoxButton.OK,MessageBoxImage.Error);}
   finally{GenerateSeamsButton.IsEnabled=true;}
  }
- private static byte[] MakeSeamPng(string path,int mode,int blend){
-  var info=new FileInfo(path);if(info.Length>75L*1024*1024)throw new InvalidDataException("Image exceeds 75 MB.");
-  using var stream=File.OpenRead(path);
-  var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);
-  var source=decoder.Frames[0];
-  if((long)source.PixelWidth*source.PixelHeight>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");
-  var scale=Math.Min(1.0,1024.0/Math.Max(source.PixelWidth,source.PixelHeight));
-  BitmapSource bitmap=source;
-  if(scale<1){var scaled=new TransformedBitmap(source,new System.Windows.Media.ScaleTransform(scale,scale));scaled.Freeze();bitmap=scaled;}
-  var converted=new System.Windows.Media.Imaging.FormatConvertedBitmap(bitmap,System.Windows.Media.PixelFormats.Bgra32,null,0);converted.Freeze();
-  var w=converted.PixelWidth;var h=converted.PixelHeight;var stride=checked(w*4);
-  var pixels=new byte[checked(stride*h)];converted.CopyPixels(pixels,stride,0);
-  if(mode==1){
-   // A horizontally mirrored extension has matching outer edges.
-   var wide=checked(w*2);var result=new byte[checked(wide*h*4)];
-   for(int y=0;y<h;y++)for(int x=0;x<wide;x++){
-    int sx=x<w?x:wide-1-x;Buffer.BlockCopy(pixels,y*stride+sx*4,result,(y*wide+x)*4,4);
-   }
-   pixels=result;w=wide;stride=checked(w*4);
-  }else{
-   var band=Math.Min(Math.Max(blend,mode==2?8:1),Math.Max(1,w/4));
-   // Blend opposing edges toward a shared seam color; keep center unchanged.
-   for(int y=0;y<h;y++)for(int x=0;x<band;x++){
-    int a=y*stride+x*4,b=y*stride+(w-1-x)*4;
-    double t=(double)(band-x)/band;
-    for(int c=0;c<4;c++){
-     var left=pixels[a+c];var right=pixels[b+c];var middle=(left+right)/2.0;
-     pixels[a+c]=(byte)Math.Clamp((int)Math.Round(left*(1-t)+middle*t),0,255);
-     pixels[b+c]=(byte)Math.Clamp((int)Math.Round(right*(1-t)+middle*t),0,255);
-    }
+ private static byte[][] ConnectAttirePanels(string[] paths,int blend){
+  using var front=Cv2.ImRead(paths[0],OpenCvSharp.ImreadModes.Color);
+  using var back=Cv2.ImRead(paths[1],OpenCvSharp.ImreadModes.Color);
+  using var left=Cv2.ImRead(paths[2],OpenCvSharp.ImreadModes.Color);
+  using var right=Cv2.ImRead(paths[3],OpenCvSharp.ImreadModes.Color);
+  if(new[]{front,back,left,right}.Any(m=>m.Empty()))throw new InvalidDataException("One of the four textures could not be opened.");
+  int w=front.Width,h=front.Height;
+  if(w<16||h<16||w>4096||h>4096)throw new InvalidDataException("Front texture must be between 16 and 4096 pixels per side.");
+  using var b=new Mat();using var l=new Mat();using var rr=new Mat();
+  Cv2.Resize(back,b,new OpenCvSharp.Size(w,h));Cv2.Resize(left,l,new OpenCvSharp.Size(w,h));Cv2.Resize(right,rr,new OpenCvSharp.Size(w,h));
+  using var f=front.Clone();using var bk=b.Clone();using var ls=l.Clone();using var rs=rr.Clone();
+  // Ordered wrap: BACK -> LEFT -> FRONT -> RIGHT -> BACK.
+  // Pairwise edge averaging ensures the same pixel color at each adjoining edge.
+  // Blend changes are confined to narrow strips; artwork in panel centers survives.
+  JoinEdge(bk,ls,blend);JoinEdge(ls,f,blend);JoinEdge(f,rs,blend);JoinEdge(rs,bk,blend);
+  // The four joins above share corners only; each left/right edge is independently paired.
+  var all=new[]{f,bk,ls,rs};
+  using var preview=new Mat(new OpenCvSharp.Size(w*5,h),OpenCvSharp.MatType.CV_8UC3);
+  var order=new[]{bk,ls,f,rs,bk};
+  for(int i=0;i<5;i++)using(var region=new Mat(preview,new OpenCvSharp.Rect(i*w,0,w,h))){order[i].CopyTo(region);}
+  var result=new byte[5][];for(int i=0;i<4;i++){Cv2.ImEncode(".png",all[i],out result[i]);}Cv2.ImEncode(".png",preview,out result[4]);return result;
+ }
+ private static void JoinEdge(Mat a,Mat b,int blend){
+  int w=Math.Min(a.Width,b.Width),h=Math.Min(a.Height,b.Height),band=Math.Min(Math.Max(1,blend),w/3);
+  for(int y=0;y<h;y++){
+   var ar=a.At<OpenCvSharp.Vec3b>(y,a.Width-1);var bl=b.At<OpenCvSharp.Vec3b>(y,0);
+   var mid=new OpenCvSharp.Vec3b((byte)((ar.Item0+bl.Item0)/2),(byte)((ar.Item1+bl.Item1)/2),(byte)((ar.Item2+bl.Item2)/2));
+   for(int x=0;x<band;x++){
+    double t=(double)(band-x)/band;t=t*t*(3-2*t);
+    int ax=a.Width-1-x,bx=x;
+    var av=a.At<OpenCvSharp.Vec3b>(y,ax);var bv=b.At<OpenCvSharp.Vec3b>(y,bx);
+    a.Set(y,ax,new OpenCvSharp.Vec3b((byte)(av.Item0*(1-t)+mid.Item0*t),(byte)(av.Item1*(1-t)+mid.Item1*t),(byte)(av.Item2*(1-t)+mid.Item2*t)));
+    b.Set(y,bx,new OpenCvSharp.Vec3b((byte)(bv.Item0*(1-t)+mid.Item0*t),(byte)(bv.Item1*(1-t)+mid.Item1*t),(byte)(bv.Item2*(1-t)+mid.Item2*t)));
    }
   }
-  var image=BitmapSource.Create(w,h,96,96,System.Windows.Media.PixelFormats.Bgra32,null,pixels,stride);image.Freeze();
-  var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(image));
-  using var output=new MemoryStream();encoder.Save(output);return output.ToArray();
  }
-
  private async void MatchTemplate_Click(object sender,RoutedEventArgs e){await MatchTemplateAsync();}
  private async Task MatchTemplateAsync(){
   if(selectedPhoto is null){MatchStatusText.Text="Import a reference photo first.";return;}
