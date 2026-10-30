@@ -312,7 +312,7 @@ public partial class MainWindow : Window {
   // prompts and floating menu elements. Preserve all limbs within the mask.
   using var binary=new Mat();Cv2.Threshold(soft,binary,128,255,OpenCvSharp.ThresholdTypes.Binary);
   using var labels=new Mat();using var stats=new Mat();using var centroids=new Mat();
-  int components=Cv2.ConnectedComponentsWithStats(binary,labels,stats,centroids,8,OpenCvSharp.MatType.CV_32S);
+  int components=Cv2.ConnectedComponentsWithStats(binary,labels,stats,centroids,OpenCvSharp.PixelConnectivity.Connectivity8,OpenCvSharp.MatType.CV_32S);
   int chosen=-1;double bestScore=0;
   for(int i=1;i<components;i++){
    int x=stats.At<int>(i,(int)OpenCvSharp.ConnectedComponentsTypes.Left);
