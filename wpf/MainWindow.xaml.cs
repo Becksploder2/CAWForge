@@ -212,6 +212,9 @@ public partial class MainWindow : Window {
    double edgeY=Math.Min(y-275.0,685.0-y);
    double alpha=Math.Clamp(Math.Min(edgeX/75.0,edgeY/75.0),0,1);
    alpha=alpha*alpha*(3-2*alpha);
+   // Protect the brow/eye band from the underskin feather mask.
+   // Keep original eyebrow hairs and definition instead of washing them out.
+   if(y>=275&&y<=430&&x>=190&&x<=630)alpha=1.0;
    var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
    texture.Set(y,x,new OpenCvSharp.Vec3b(
     (byte)Math.Clamp(p.Item0*alpha+tone[0]*(1-alpha),0,255),
