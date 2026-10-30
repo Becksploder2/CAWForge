@@ -319,7 +319,7 @@ public partial class MainWindow : Window {
    for(int d=0;d<width;d++){
     int x=edge+(bLeft?d:-d),sx=sourceEdge+(bLeft?d:-d);
     if(x<0||x>=b.Width||sx<0||sx>=b.Width)break;
-    var current=b.At<OpenCvSharp.Vec4b>(y,x),source=original.At<OpenCvSharp.Vec4b>(srcY,sx);
+    var current=b.At<OpenCvSharp.Vec4b>(y,x);var source=original.At<OpenCvSharp.Vec4b>(srcY,sx);
     if(current.Item3<128||source.Item3<128)continue;
     double weight=1.0-(double)d/width;weight=weight*weight*(3-2*weight);
     b.Set(y,x,new OpenCvSharp.Vec4b(
