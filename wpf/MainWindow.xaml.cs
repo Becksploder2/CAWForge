@@ -203,40 +203,70 @@ public partial class MainWindow : Window {
   finally{GenerateSeamsButton.IsEnabled=true;}
  }
  private static byte[][] ConnectAttirePanels(string[] paths,int blend){
-  using var front=Cv2.ImRead(paths[0],OpenCvSharp.ImreadModes.Color);
-  using var back=Cv2.ImRead(paths[1],OpenCvSharp.ImreadModes.Color);
-  using var left=Cv2.ImRead(paths[2],OpenCvSharp.ImreadModes.Color);
-  using var right=Cv2.ImRead(paths[3],OpenCvSharp.ImreadModes.Color);
-  if(new[]{front,back,left,right}.Any(m=>m.Empty()))throw new InvalidDataException("One of the four textures could not be opened.");
-  int w=front.Width,h=front.Height;
-  if(w<16||h<16||w>4096||h>4096)throw new InvalidDataException("Front texture must be between 16 and 4096 pixels per side.");
-  using var b=new Mat();using var l=new Mat();using var rr=new Mat();
-  Cv2.Resize(back,b,new OpenCvSharp.Size(w,h));Cv2.Resize(left,l,new OpenCvSharp.Size(w,h));Cv2.Resize(right,rr,new OpenCvSharp.Size(w,h));
-  using var f=front.Clone();using var bk=b.Clone();using var ls=l.Clone();using var rs=rr.Clone();
-  // Ordered wrap: BACK -> LEFT -> FRONT -> RIGHT -> BACK.
-  // Pairwise edge averaging ensures the same pixel color at each adjoining edge.
-  // Blend changes are confined to narrow strips; artwork in panel centers survives.
-  JoinEdge(bk,ls,blend);JoinEdge(ls,f,blend);JoinEdge(f,rs,blend);JoinEdge(rs,bk,blend);
-  // The four joins above share corners only; each left/right edge is independently paired.
-  var all=new[]{f,bk,ls,rs};
-  using var preview=new Mat(new OpenCvSharp.Size(w*5,h),OpenCvSharp.MatType.CV_8UC3);
-  var order=new[]{bk,ls,f,rs,bk};
-  for(int i=0;i<5;i++)using(var region=new Mat(preview,new OpenCvSharp.Rect(i*w,0,w,h))){order[i].CopyTo(region);}
-  var result=new byte[5][];for(int i=0;i<4;i++){Cv2.ImEncode(".png",all[i],out result[i]);}Cv2.ImEncode(".png",preview,out result[4]);return result;
+  // PNG alpha defines the garment; transparent canvas pixels are never seams.
+  var originals=paths.Select(p=>Cv2.ImRead(p,OpenCvSharp.ImreadModes.Unchanged)).ToArray();
+  try{
+   if(originals.Any(m=>m.Empty()))throw new InvalidDataException("Could not read one of the four textures.");
+   if(originals.Any(m=>m.Channels()!=4))throw new InvalidDataException("Four transparent PNGs (RGBA) are required. JPG or flattened textures cannot define garment seams.");
+   int w=originals[0].Width,h=originals[0].Height;
+   if(w<32||h<32||w>4096||h>4096)throw new InvalidDataException("Front dimensions must be 32–4096 pixels.");
+   // Preserve each source image's original size and alpha for WWE texture import.
+   // Never stretch the side panels to match the front.
+   var f=originals[0];var bk=originals[1];var ls=originals[2];var rs=originals[3];
+   // Left panel joins the left silhouette of front and the right silhouette of back.
+   // Right panel joins the right silhouette of front and the left silhouette of back.
+   // Each edge is found per scanline from the alpha mask, not the canvas border.
+   JoinSilhouette(bk,ls,false,true,blend);
+   JoinSilhouette(ls,f,false,true,blend);
+   JoinSilhouette(f,rs,false,true,blend);
+   JoinSilhouette(rs,bk,false,true,blend);
+   var result=new byte[5][];
+   for(int i=0;i<4;i++)Cv2.ImEncode(".png",originals[i],out result[i]);
+   // A contact sheet is a preview, not a claim of 3D UV alignment.
+   int tileW=260,tileH=260;
+   using var sheet=new Mat(new OpenCvSharp.Size(tileW*4,tileH),OpenCvSharp.MatType.CV_8UC4,new OpenCvSharp.Scalar(35,35,35,255));
+   var ordered=new[]{bk,ls,f,rs};
+   for(int i=0;i<4;i++){
+    double scale=Math.Min((double)(tileW-12)/ordered[i].Width,(double)(tileH-12)/ordered[i].Height);
+    using var scaled=new Mat();Cv2.Resize(ordered[i],scaled,new OpenCvSharp.Size(Math.Max(1,(int)(ordered[i].Width*scale)),Math.Max(1,(int)(ordered[i].Height*scale))));
+    using var dest=new Mat(sheet,new OpenCvSharp.Rect(i*tileW+(tileW-scaled.Width)/2,(tileH-scaled.Height)/2,scaled.Width,scaled.Height));
+    for(int y=0;y<scaled.Height;y++)for(int x=0;x<scaled.Width;x++){
+     var p=scaled.At<OpenCvSharp.Vec4b>(y,x);double alpha=p.Item3/255.0;
+     var bg=dest.At<OpenCvSharp.Vec4b>(y,x);
+     dest.Set(y,x,new OpenCvSharp.Vec4b((byte)(p.Item0*alpha+bg.Item0*(1-alpha)),(byte)(p.Item1*alpha+bg.Item1*(1-alpha)),(byte)(p.Item2*alpha+bg.Item2*(1-alpha)),255));
+    }
+   }
+   Cv2.ImEncode(".png",sheet,out result[4]);return result;
+  }finally{foreach(var m in originals)m.Dispose();}
  }
- private static void JoinEdge(Mat a,Mat b,int blend){
-  int w=Math.Min(a.Width,b.Width),h=Math.Min(a.Height,b.Height),band=Math.Min(Math.Max(1,blend),w/3);
-  for(int y=0;y<h;y++){
-   var ar=a.At<OpenCvSharp.Vec3b>(y,a.Width-1);var bl=b.At<OpenCvSharp.Vec3b>(y,0);
-   var mid=new OpenCvSharp.Vec3b((byte)((ar.Item0+bl.Item0)/2),(byte)((ar.Item1+bl.Item1)/2),(byte)((ar.Item2+bl.Item2)/2));
-   for(int x=0;x<band;x++){
-    double t=(double)(band-x)/band;t=t*t*(3-2*t);
-    int ax=a.Width-1-x,bx=x;
-    var av=a.At<OpenCvSharp.Vec3b>(y,ax);var bv=b.At<OpenCvSharp.Vec3b>(y,bx);
-    a.Set(y,ax,new OpenCvSharp.Vec3b((byte)(av.Item0*(1-t)+mid.Item0*t),(byte)(av.Item1*(1-t)+mid.Item1*t),(byte)(av.Item2*(1-t)+mid.Item2*t)));
-    b.Set(y,bx,new OpenCvSharp.Vec3b((byte)(bv.Item0*(1-t)+mid.Item0*t),(byte)(bv.Item1*(1-t)+mid.Item1*t),(byte)(bv.Item2*(1-t)+mid.Item2*t)));
+ private static void JoinSilhouette(Mat a,Mat b,bool aLeft,bool bLeft,int blend){
+  // Pair rows by proportional vertical position; do not alter transparency,
+  // silhouettes, logos, or the center of the garment.
+  int rows=Math.Min(a.Height,b.Height),band=Math.Max(2,blend);
+  for(int row=0;row<rows;row++){
+   int ay=(int)((row+0.5)*a.Height/rows),by=(int)((row+0.5)*b.Height/rows);
+   ay=Math.Min(a.Height-1,ay);by=Math.Min(b.Height-1,by);
+   int ax=FindSilhouetteEdge(a,ay,aLeft),bx=FindSilhouetteEdge(b,by,bLeft);
+   if(ax<0||bx<0)continue;
+   var av=a.At<OpenCvSharp.Vec4b>(ay,ax);var bv=b.At<OpenCvSharp.Vec4b>(by,bx);
+   // Match colors on the two actual garment boundaries. Blend gradually
+   // inward, never into transparent pixels or across the whole image.
+   double[] seam={((int)av.Item0+bv.Item0)/2.0,((int)av.Item1+bv.Item1)/2.0,((int)av.Item2+bv.Item2)/2.0};
+   for(int d=0;d<band;d++){
+    int x1=ax+(aLeft?d:-d),x2=bx+(bLeft?d:-d);
+    if(x1<0||x1>=a.Width||x2<0||x2>=b.Width)break;
+    var p=a.At<OpenCvSharp.Vec4b>(ay,x1),q=b.At<OpenCvSharp.Vec4b>(by,x2);
+    if(p.Item3<128||q.Item3<128)break;
+    double t=1.0-(double)d/band;t=t*t*(3-2*t);
+    a.Set(ay,x1,new OpenCvSharp.Vec4b((byte)(p.Item0*(1-t)+seam[0]*t),(byte)(p.Item1*(1-t)+seam[1]*t),(byte)(p.Item2*(1-t)+seam[2]*t),p.Item3));
+    b.Set(by,x2,new OpenCvSharp.Vec4b((byte)(q.Item0*(1-t)+seam[0]*t),(byte)(q.Item1*(1-t)+seam[1]*t),(byte)(q.Item2*(1-t)+seam[2]*t),q.Item3));
    }
   }
+ }
+ private static int FindSilhouetteEdge(Mat m,int y,bool left){
+  if(left){for(int x=0;x<m.Width;x++)if(m.At<OpenCvSharp.Vec4b>(y,x).Item3>=128)return x;}
+  else{for(int x=m.Width-1;x>=0;x--)if(m.At<OpenCvSharp.Vec4b>(y,x).Item3>=128)return x;}
+  return -1;
  }
  private async void MatchTemplate_Click(object sender,RoutedEventArgs e){await MatchTemplateAsync();}
  private async Task MatchTemplateAsync(){
