@@ -133,32 +133,48 @@ public partial class MainWindow : Window {
   // Use genuine cheek skin for a seamless, full-canvas underskin. Never
   // mirror the photo, preserve its original background, or paste an oval.
   // Facial detail is composited only where the image plausibly contains skin.
-  var cheekA=aligned.At<OpenCvSharp.Vec3b>(490,255);
-  var cheekB=aligned.At<OpenCvSharp.Vec3b>(490,565);
-  var browSkin=aligned.At<OpenCvSharp.Vec3b>(245,410);
-  var chinSkin=aligned.At<OpenCvSharp.Vec3b>(685,410);
+  // Sample a broad patch of cheek skin, not individual pixels (which can
+  // land on hair, makeup or a specular highlight).
+  static OpenCvSharp.Vec3b MedianPatch(Mat m,int cx,int cy,int radius){
+   var bs=new List<byte>();var gs=new List<byte>();var rs=new List<byte>();
+   for(int y=Math.Max(0,cy-radius);y<Math.Min(m.Height,cy+radius);y+=3)
+    for(int x=Math.Max(0,cx-radius);x<Math.Min(m.Width,cx+radius);x+=3){
+     var p=m.At<OpenCvSharp.Vec3b>(y,x);
+     if(p.Item0<25||p.Item1<25||p.Item2<25)continue;
+     bs.Add(p.Item0);gs.Add(p.Item1);rs.Add(p.Item2);
+    }
+   if(bs.Count==0)throw new InvalidDataException("Cannot sample usable skin tone from the photograph.");
+   bs.Sort();gs.Sort();rs.Sort();int k=bs.Count/2;
+   return new OpenCvSharp.Vec3b(bs[k],gs[k],rs[k]);
+  }
+  var cheekA=MedianPatch(aligned,285,505,32);
+  var cheekB=MedianPatch(aligned,535,505,32);
+  var browSkin=MedianPatch(aligned,410,305,22);
+  var chinSkin=MedianPatch(aligned,410,650,20);
   using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
+  // Use a facial-detail mask shaped to exclude the hairline, ears, and neck.
+  // Outside that mask, render continuous skin sampled from the reference.
   for(int y=0;y<820;y++)for(int x=0;x<820;x++){
    double u=x/819.0,v=y/819.0;
-   double[] baseTone=new double[3];
+   double[] tone=new double[3];
    for(int c=0;c<3;c++){
     double l=c==0?cheekA.Item0:c==1?cheekA.Item1:cheekA.Item2;
     double rr=c==0?cheekB.Item0:c==1?cheekB.Item1:cheekB.Item2;
     double forehead=c==0?browSkin.Item0:c==1?browSkin.Item1:browSkin.Item2;
     double chin=c==0?chinSkin.Item0:c==1?chinSkin.Item1:chinSkin.Item2;
-    baseTone[c]=0.72*(l*(1-u)+rr*u)+0.28*(forehead*(1-v)+chin*v);
+    tone[c]=0.80*(l*(1-u)+rr*u)+0.20*(forehead*(1-v)+chin*v);
    }
-   // Fade into sampled skin on all four edges. No reflection or circular
-   // photo boundary. Constrain top and sides to avoid source hair and ears.
-   double h=Math.Clamp((x-215.0)/90.0,0,1)*Math.Clamp((605.0-x)/90.0,0,1);
-   double vMask=Math.Clamp((y-255.0)/95.0,0,1)*Math.Clamp((690.0-y)/85.0,0,1);
-   double alpha=h*vMask;
+   // Elliptical feathered facial-detail region with an upper boundary below
+   // the hairline. It never retains the full source photo or its background.
+   double dx=(x-410.0)/230.0,dy=(y-475.0)/285.0;
+   double dist=Math.Sqrt(dx*dx+dy*dy);
+   double alpha=Math.Clamp((1.0-dist)/0.16,0,1);
    alpha=alpha*alpha*(3-2*alpha);
    var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
    texture.Set(y,x,new OpenCvSharp.Vec3b(
-    (byte)Math.Clamp(p.Item0*alpha+baseTone[0]*(1-alpha),0,255),
-    (byte)Math.Clamp(p.Item1*alpha+baseTone[1]*(1-alpha),0,255),
-    (byte)Math.Clamp(p.Item2*alpha+baseTone[2]*(1-alpha),0,255)));
+    (byte)Math.Clamp(p.Item0*alpha+tone[0]*(1-alpha),0,255),
+    (byte)Math.Clamp(p.Item1*alpha+tone[1]*(1-alpha),0,255),
+    (byte)Math.Clamp(p.Item2*alpha+tone[2]*(1-alpha),0,255)));
   }
   Cv2.ImEncode(".png",texture,out var bytes);
   return bytes;
