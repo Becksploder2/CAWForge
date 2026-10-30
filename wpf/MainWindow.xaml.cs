@@ -129,7 +129,26 @@ public partial class MainWindow : Window {
   if(right-left<32||bottom-top<32)throw new InvalidDataException("Detected face is too small for texture generation.");
   using var crop=new Mat(src,new OpenCvSharp.Rect(left,top,right-left,bottom-top));
   using var aligned=new Mat();
-  Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820));
+  Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+  // Improve fine facial texture before compositing. Enhance local luminance
+  // (pores, freckles, lips and eye details) without exaggerating skin color.
+  using(var lab=new Mat()){
+   Cv2.CvtColor(aligned,lab,OpenCvSharp.ColorConversionCodes.BGR2Lab);
+   var channels=Cv2.Split(lab);
+   try{
+    using(var clahe=Cv2.CreateCLAHE(1.6,new OpenCvSharp.Size(8,8))){
+     using var enhanced=new Mat();
+     clahe.Apply(channels[0],enhanced);
+     enhanced.CopyTo(channels[0]);
+    }
+    Cv2.Merge(channels,lab);
+    Cv2.CvtColor(lab,aligned,OpenCvSharp.ColorConversionCodes.Lab2BGR);
+   }finally{foreach(var ch in channels)ch.Dispose();}
+  }
+  using(var blurred=new Mat()){
+   Cv2.GaussianBlur(aligned,blurred,new OpenCvSharp.Size(0,0),0.85);
+   Cv2.AddWeighted(aligned,1.28,blurred,-0.28,0,aligned);
+  }
   // Use genuine cheek skin for a seamless, full-canvas underskin. Never
   // mirror the photo, preserve its original background, or paste an oval.
   // Facial detail is composited only where the image plausibly contains skin.
