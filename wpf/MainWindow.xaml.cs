@@ -225,6 +225,73 @@ public partial class MainWindow : Window {
   return bytes;
  }
 
+ private string? renderPhoto;
+ private void ImportRender_Click(object sender,RoutedEventArgs e){
+  var dlg=new OpenFileDialog{Title="Choose in-game CAW screenshot",Filter="Image files|*.png;*.jpg;*.jpeg;*.bmp",CheckFileExists=true};
+  if(dlg.ShowDialog(this)==true){renderPhoto=dlg.FileName;RenderFileText.Text=Path.GetFileName(renderPhoto);}
+ }
+ private async void GenerateRender_Click(object sender,RoutedEventArgs e){
+  if(renderPhoto==null){MessageBox.Show(this,"Import an in-game CAW screenshot first.");return;}
+  var dlg=new SaveFileDialog{Title="Export CAW studio render",Filter="PNG image|*.png",FileName="CAWForge-Render.png",AddExtension=true};
+  if(dlg.ShowDialog(this)!=true)return;
+  try{
+   StatusText.Text="Creating transparent studio render…";
+   var path=renderPhoto;int threshold=(int)RenderThreshold.Value;
+   byte[] png=await Task.Run(()=>CreateStudioRender(path,threshold));
+   await File.WriteAllBytesAsync(dlg.FileName,png);
+   using var stream=new MemoryStream(png);
+   var image=new BitmapImage();image.BeginInit();image.CacheOption=BitmapCacheOption.OnLoad;image.StreamSource=stream;image.EndInit();image.Freeze();
+   RenderPreview.Source=image;
+   StatusText.Text="Render saved: "+dlg.FileName;
+  }catch(Exception ex){StatusText.Text="Render failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Render Creator",MessageBoxButton.OK,MessageBoxImage.Error);}
+ }
+ private static byte[] CreateStudioRender(string path,int threshold){
+  using var source=Cv2.ImRead(path,ImreadModes.Color);
+  if(source.Empty())throw new InvalidDataException("Unable to open screenshot.");
+  if((long)source.Width*source.Height>35000000)throw new InvalidDataException("Screenshot is too large.");
+  // Center-crop to a portrait frame, keeping the whole CAW when possible.
+  int cropW=Math.Min(source.Width,(int)(source.Height*0.88));
+  int cropX=(source.Width-cropW)/2;
+  using var crop=new Mat(source,new OpenCvSharp.Rect(cropX,0,cropW,source.Height));
+  using var rgb=new Mat();Cv2.Resize(crop,rgb,new OpenCvSharp.Size(1024,1024),0,0,OpenCvSharp.InterpolationFlags.Lanczos4);
+  // Connected flood-fill from image borders identifies a roughly uniform
+  // game backdrop. A complex arena may need a dedicated segmentation model.
+  int w=rgb.Width,h=rgb.Height;
+  var background=new bool[w*h];var queued=new bool[w*h];var queue=new Queue<int>();
+  var corners=new[]{rgb.At<OpenCvSharp.Vec3b>(0,0),rgb.At<OpenCvSharp.Vec3b>(0,w-1),rgb.At<OpenCvSharp.Vec3b>(h-1,0),rgb.At<OpenCvSharp.Vec3b>(h-1,w-1)};
+  bool Similar(OpenCvSharp.Vec3b p){
+   foreach(var c in corners){
+    int d=Math.Abs(p.Item0-c.Item0)+Math.Abs(p.Item1-c.Item1)+Math.Abs(p.Item2-c.Item2);
+    if(d<=threshold*3)return true;
+   }
+   return false;
+  }
+  void Add(int x,int y){
+   if(x<0||x>=w||y<0||y>=h)return;
+   int index=y*w+x;if(queued[index])return;
+   queued[index]=true;
+   if(Similar(rgb.At<OpenCvSharp.Vec3b>(y,x)))queue.Enqueue(index);
+  }
+  for(int x=0;x<w;x++){Add(x,0);Add(x,h-1);}
+  for(int y=0;y<h;y++){Add(0,y);Add(w-1,y);}
+  while(queue.Count>0){
+   int i=queue.Dequeue();if(background[i])continue;background[i]=true;
+   int x=i%w,y=i/w;
+   Add(x-1,y);Add(x+1,y);Add(x,y-1);Add(x,y+1);
+  }
+  using var alpha=new Mat(new OpenCvSharp.Size(w,h),OpenCvSharp.MatType.CV_8UC1);
+  for(int y=0;y<h;y++)for(int x=0;x<w;x++)alpha.Set(y,x,(byte)(background[y*w+x]?0:255));
+  using var soft=new Mat();Cv2.GaussianBlur(alpha,soft,new OpenCvSharp.Size(3,3),0.7);
+  using var result=new Mat(new OpenCvSharp.Size(w,h),OpenCvSharp.MatType.CV_8UC4);
+  for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+   var p=rgb.At<OpenCvSharp.Vec3b>(y,x);
+   // Gentle studio contrast and rim-like highlights, no outfit recoloring.
+   double light=1.035+0.06*(1.0-Math.Abs(x-w/2.0)/(w/2.0));
+   byte C(byte v)=>(byte)Math.Clamp((v-128)*1.055*light+128,0,255);
+   result.Set(y,x,new OpenCvSharp.Vec4b(C(p.Item0),C(p.Item1),C(p.Item2),soft.At<byte>(y,x)));
+  }
+  Cv2.ImEncode(".png",result,out var bytes);return bytes;
+ }
  private string? frontAttire,backAttire,leftAttire,rightAttire;
  private string? PickPanel(string label){var d=new OpenFileDialog{Title="Choose "+label+" attire texture",Filter="Images|*.png;*.jpg;*.jpeg;*.bmp",CheckFileExists=true};return d.ShowDialog(this)==true?d.FileName:null;}
  private void ImportFront_Click(object sender,RoutedEventArgs e){var p=PickPanel("front");if(p!=null){frontAttire=p;FrontFileText.Text=Path.GetFileName(p);}}
