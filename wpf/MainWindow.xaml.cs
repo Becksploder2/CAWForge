@@ -82,43 +82,59 @@ public partial class MainWindow : Window {
    using var ms=new MemoryStream(png);
    var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
    TexturePreview.Source=preview;
-   StatusText.Text="Blended 820 × 820 face texture saved. Verify alignment in WWE 2K26.";
+   StatusText.Text="Face-isolated 820 × 820 texture saved. Check hairline and alignment before importing.";
   }catch(Exception ex){StatusText.Text="Face texture generation failed.";MessageBox.Show(this,ex.Message,"Face texture error",MessageBoxButton.OK,MessageBoxImage.Error);}
  }
  private static byte[] MakeFaceTexture(string path){
   using var src=Cv2.ImRead(path,ImreadModes.Color);
   if(src.Empty())throw new InvalidDataException("Unable to decode reference photo.");
   if((long)src.Width*src.Height>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");
-  using var resized=new Mat();
-  int cropWidth=(int)Math.Max(1,Math.Min(src.Width,src.Height*0.78));
-  int cropHeight=(int)Math.Max(1,Math.Min(src.Height,cropWidth/0.78));
-  int x=Math.Max(0,(src.Width-cropWidth)/2),y=Math.Max(0,(src.Height-cropHeight)/2);
-  using(var crop=new Mat(src,new OpenCvSharp.Rect(x,y,cropWidth,cropHeight)))
-   Cv2.Resize(crop,resized,new OpenCvSharp.Size(608,770));
-  using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
-  var cheek1=resized.At<OpenCvSharp.Vec3b>(385,210);
-  var cheek2=resized.At<OpenCvSharp.Vec3b>(385,398);
-  var cheek3=resized.At<OpenCvSharp.Vec3b>(520,304);
-  byte blue=(byte)((cheek1.Item0+cheek2.Item0+cheek3.Item0)/3);
-  byte green=(byte)((cheek1.Item1+cheek2.Item1+cheek3.Item1)/3);
-  byte red=(byte)((cheek1.Item2+cheek2.Item2+cheek3.Item2)/3);
-  texture.SetTo(new OpenCvSharp.Scalar(blue,green,red));
-  for(int row=0;row<770;row++){
-   for(int col=0;col<608;col++){
-    double nx=(col-303.5)/304.0,ny=(row-384.5)/385.0;
-    double radius=Math.Sqrt(nx*nx+ny*ny);
-    double alpha=Math.Clamp((0.98-radius)/0.18,0,1);
-    if(alpha<=0)continue;
-    var pixel=resized.At<OpenCvSharp.Vec3b>(row,col);
-    var blended=new OpenCvSharp.Vec3b(
-     (byte)(pixel.Item0*alpha+blue*(1-alpha)),
-     (byte)(pixel.Item1*alpha+green*(1-alpha)),
-     (byte)(pixel.Item2*alpha+red*(1-alpha)));
-    texture.Set(row+25,col+106,blended);
-   }
+  // Detect the face; never use the whole photograph as the texture.
+  OpenCvSharp.Rect face;
+  var classifierPath=Path.Combine(AppContext.BaseDirectory,"Models","haarcascade_frontalface_default.xml");
+  if(!File.Exists(classifierPath))throw new FileNotFoundException("Face detector is missing. Reinstall the complete CAWForge build.",classifierPath);
+  using(var detector=new CascadeClassifier(classifierPath)){
+   var found=detector.DetectMultiScale(src,1.1,5);
+   if(found.Length==0)throw new InvalidDataException("No frontal face detected. Use a clear, straight-on reference photograph.");
+   face=found.OrderByDescending(f=>f.Width*f.Height).First();
   }
-  Cv2.ImEncode(".png",texture,out var encoded);
-  return encoded;
+  // Place the facial region on a fixed UV-style canvas: brows around y=285,
+  // nose near y=450, lips near y=610. Expand into forehead and chin.
+  int left=Math.Max(0,(int)(face.X-face.Width*0.22));
+  int top=Math.Max(0,(int)(face.Y-face.Height*0.36));
+  int right=Math.Min(src.Width,(int)(face.Right+face.Width*0.22));
+  int bottom=Math.Min(src.Height,(int)(face.Bottom+face.Height*0.19));
+  if(right-left<32||bottom-top<32)throw new InvalidDataException("Detected face is too small for texture generation.");
+  using var crop=new Mat(src,new OpenCvSharp.Rect(left,top,right-left,bottom-top));
+  using var aligned=new Mat();
+  Cv2.Resize(crop,aligned,new OpenCvSharp.Size(820,820));
+  // The center is the face. Build the surrounding skin from sampled cheek
+  // colors and feather inward, preventing hair/background at canvas edges.
+  var leftCheek=aligned.At<OpenCvSharp.Vec3b>(490,250);
+  var rightCheek=aligned.At<OpenCvSharp.Vec3b>(490,570);
+  var lowerCheek=aligned.At<OpenCvSharp.Vec3b>(600,410);
+  var skin=new OpenCvSharp.Vec3b(
+   (byte)((leftCheek.Item0+rightCheek.Item0+lowerCheek.Item0)/3),
+   (byte)((leftCheek.Item1+rightCheek.Item1+lowerCheek.Item1)/3),
+   (byte)((leftCheek.Item2+rightCheek.Item2+lowerCheek.Item2)/3));
+  using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
+  texture.SetTo(new OpenCvSharp.Scalar(skin.Item0,skin.Item1,skin.Item2));
+  // Tight, soft-edged face silhouette. Hair and scenery outside it are excluded.
+  // This is a deterministic approximation, not semantic hair segmentation.
+  for(int y=0;y<820;y++)for(int x=0;x<820;x++){
+   double nx=(x-409.5)/340.0;
+   double ny=(y-430.0)/430.0;
+   double shape=Math.Sqrt(nx*nx+ny*ny);
+   double alpha=Math.Clamp((1.0-shape)/0.16,0,1);
+   if(alpha<=0)continue;
+   var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
+   texture.Set(y,x,new OpenCvSharp.Vec3b(
+    (byte)(p.Item0*alpha+skin.Item0*(1-alpha)),
+    (byte)(p.Item1*alpha+skin.Item1*(1-alpha)),
+    (byte)(p.Item2*alpha+skin.Item2*(1-alpha))));
+  }
+  Cv2.ImEncode(".png",texture,out var bytes);
+  return bytes;
  }
 
  private void ImportAttire_Click(object sender,RoutedEventArgs e){
