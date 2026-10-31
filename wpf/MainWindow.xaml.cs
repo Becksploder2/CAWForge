@@ -191,6 +191,12 @@ public partial class MainWindow : Window {
    var source=selectedPhoto;
    int upscale=FaceUpscaleBox.SelectedIndex==1?2:FaceUpscaleBox.SelectedIndex==2?4:1;
    var master=fusionTemplatePath;
+   // Keep an audit of the exact inputs used by this run. This makes it
+   // possible to distinguish bad input/template selection from bad fusion.
+   if(string.IsNullOrWhiteSpace(master)||!File.Exists(master))
+    throw new InvalidDataException("Select an installed 820 x 820 skin template before exporting. A photograph alone cannot provide clean UV underskin.");
+   if(Path.GetFullPath(source).Equals(Path.GetFullPath(master),StringComparison.OrdinalIgnoreCase))
+    throw new InvalidDataException("The reference portrait and skin template cannot be the same file.");
    var png=await Task.Run(()=>MakeFaceTexture(source,upscale,master));
    if(png.Length==0)throw new InvalidDataException("The generated PNG is empty.");
    // Write atomically to avoid leaving behind a damaged partial PNG.
@@ -205,6 +211,20 @@ public partial class MainWindow : Window {
    using var ms=new MemoryStream(png);
    var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
    TexturePreview.Source=preview;
+   // Reproducible diagnostics for comparing the source portrait, selected
+   // template and actual generated PNG. Never overwrite the original inputs.
+   var auditFolder=Path.Combine(folder!,"CAWForge-Face-Diagnostics");
+   Directory.CreateDirectory(auditFolder);
+   string auditId=DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6];
+   File.Copy(source,Path.Combine(auditFolder,auditId+"-reference"+Path.GetExtension(source)));
+   File.Copy(master,Path.Combine(auditFolder,auditId+"-template.png"));
+   await File.WriteAllBytesAsync(Path.Combine(auditFolder,auditId+"-result.png"),png);
+   await File.WriteAllTextAsync(Path.Combine(auditFolder,auditId+"-info.txt"),
+    "Morph Settings: "+MorphTemplateId+Environment.NewLine+
+    "Reference: "+Path.GetFileName(source)+Environment.NewLine+
+    "Skin template: "+Path.GetFileName(master)+Environment.NewLine+
+    "Upscale: "+upscale+Environment.NewLine+
+    "NOTE: Current local generator does not support true hair segmentation or complete facial landmark reconstruction.");
    StatusText.Text="Face texture saved to: "+output;
    MessageBox.Show(this,"Face texture saved successfully: "+output,"Export complete",MessageBoxButton.OK,MessageBoxImage.Information);
   }catch(Exception ex){
