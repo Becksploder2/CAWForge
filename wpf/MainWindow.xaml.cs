@@ -150,6 +150,35 @@ public partial class MainWindow : Window {
   using var src=Cv2.ImRead(path,ImreadModes.Color);
   if(src.Empty())throw new InvalidDataException("Unable to decode reference photo.");
   if((long)src.Width*src.Height>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");
+  // Refuse previous generated textures and composite/quadrant source images.
+  // They must never be recycled as reference photographs.
+  if(Path.GetFileName(path).StartsWith("CAWForge-Face-Texture",StringComparison.OrdinalIgnoreCase))
+   throw new InvalidDataException("A generated face texture was selected as the reference photo. Import the original, unedited portrait in Morph Settings.");
+  if(!string.IsNullOrEmpty(masterPath)&&Path.GetFullPath(path).Equals(Path.GetFullPath(masterPath),StringComparison.OrdinalIgnoreCase))
+   throw new InvalidDataException("The reference photo and face template are the same file. Import a real portrait in Morph Settings.");
+  // Large straight mid-image discontinuities indicate a four-panel collage,
+  // not a continuous portrait. Stop rather than exporting another broken PNG.
+  double VerticalSeam(int x){
+   if(x<2||x>=src.Width-2)return 0;
+   double sum=0;int n=0;
+   for(int y=src.Height/6;y<src.Height*5/6;y+=3){
+    var a=src.At<OpenCvSharp.Vec3b>(y,x-1);var b=src.At<OpenCvSharp.Vec3b>(y,x);
+    sum+=Math.Abs((int)a.Item0-b.Item0)+Math.Abs((int)a.Item1-b.Item1)+Math.Abs((int)a.Item2-b.Item2);n++;
+   }
+   return sum/Math.Max(1,n);
+  }
+  double HorizontalSeam(int y){
+   if(y<2||y>=src.Height-2)return 0;
+   double sum=0;int n=0;
+   for(int x=src.Width/6;x<src.Width*5/6;x+=3){
+    var a=src.At<OpenCvSharp.Vec3b>(y-1,x);var b=src.At<OpenCvSharp.Vec3b>(y,x);
+    sum+=Math.Abs((int)a.Item0-b.Item0)+Math.Abs((int)a.Item1-b.Item1)+Math.Abs((int)a.Item2-b.Item2);n++;
+   }
+   return sum/Math.Max(1,n);
+  }
+  double centerV=VerticalSeam(src.Width/2),centerH=HorizontalSeam(src.Height/2);
+  if(centerV>65&&centerH>65)
+   throw new InvalidDataException("The reference appears to be a four-panel composite with hard seams. Import the original portrait, not a previously generated texture.");
   // Detect the face; never use the whole photograph as the texture.
   OpenCvSharp.Rect face;
   var classifierPath=Path.Combine(AppContext.BaseDirectory,"Models","haarcascade_frontalface_default.xml");
