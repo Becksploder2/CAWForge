@@ -11,30 +11,67 @@ using System.Windows.Media.Imaging;
 namespace CAWForge;
 public partial class MainWindow : Window {
  private readonly List<(string Name,string Path)> fusionLibrary=new();
- private void RefreshFusionLibrary(string folder){
+ private static string InstalledFaceTemplates=>Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"CAWForge","FaceTextureTemplates");
+ private void RefreshFusionLibrary(string? preferred=null){
   fusionLibrary.Clear();FusionLibraryBox.Items.Clear();
-  if(Directory.Exists(folder)){
-   foreach(var file in Directory.EnumerateFiles(folder,"*.png").OrderBy(p=>p)){
+  var directories=new[]{InstalledFaceTemplates,Path.Combine(AppContext.BaseDirectory,"FaceTextureTemplates"),preferred}
+   .Where(p=>!string.IsNullOrWhiteSpace(p)&&Directory.Exists(p)).Distinct(StringComparer.OrdinalIgnoreCase);
+  foreach(var folder in directories){
+   foreach(var file in Directory.EnumerateFiles(folder!,"*.png",SearchOption.AllDirectories).OrderBy(p=>p)){
     var name=Path.GetFileNameWithoutExtension(file);
-    if(!(name.StartsWith("Female",StringComparison.OrdinalIgnoreCase)||name.StartsWith("Male",StringComparison.OrdinalIgnoreCase)||System.Text.RegularExpressions.Regex.IsMatch(name,@"^[FM][1-9]\\d*$",System.Text.RegularExpressions.RegexOptions.IgnoreCase)))continue;
+    if(!System.Text.RegularExpressions.Regex.IsMatch(name,@"^(?:Female(?: Template)? ?[1-9][0-9]*|Female Skintone [1-9][0-9]*|Male(?: Template)? ?[1-9][0-9]*|[FM][1-9][0-9]*)$",System.Text.RegularExpressions.RegexOptions.IgnoreCase))continue;
     using var check=Cv2.ImRead(file,ImreadModes.Unchanged);
     if(check.Empty()||check.Width!=820||check.Height!=820)continue;
-    fusionLibrary.Add((name,file));FusionLibraryBox.Items.Add(name);
+    if(fusionLibrary.Any(t=>t.Name.Equals(name,StringComparison.OrdinalIgnoreCase)))continue;
+    fusionLibrary.Add((name,file));
    }
   }
-  if(fusionLibrary.Count>0){FusionLibraryBox.SelectedIndex=0;FusionTemplateText.Text=fusionLibrary.Count+" built-in/library templates available";}else FusionTemplateText.Text="No 820×820 templates found. Load the template pack.";
+  fusionLibrary.Sort((a,b)=>string.Compare(a.Name,b.Name,StringComparison.OrdinalIgnoreCase));
+  foreach(var item in fusionLibrary)FusionLibraryBox.Items.Add(item.Name);
+  if(fusionLibrary.Count>0){
+   FusionLibraryBox.SelectedIndex=0;
+   FusionTemplateText.Text=fusionLibrary.Count+" installed templates — choose one above";
+  }else{
+   fusionTemplatePath=null;
+   FusionTemplateText.Text="No templates installed. Select your CAWForge template ZIP once to install the complete library.";
+  }
  }
  private void FusionLibraryBox_SelectionChanged(object sender,System.Windows.Controls.SelectionChangedEventArgs e){
   int index=FusionLibraryBox.SelectedIndex;
   if(index<0||index>=fusionLibrary.Count)return;
   fusionTemplatePath=fusionLibrary[index].Path;
   FusionTemplateText.Text="Selected: "+fusionLibrary[index].Name;
+  try{
+   var preview=new BitmapImage();
+   preview.BeginInit();preview.CacheOption=BitmapCacheOption.OnLoad;
+   preview.UriSource=new Uri(fusionTemplatePath,UriKind.Absolute);
+   preview.EndInit();preview.Freeze();FusionTemplatePreview.Source=preview;
+  }catch{FusionTemplatePreview.Source=null;}
  }
  private void LoadFusionLibrary_Click(object sender,RoutedEventArgs e){
-  var dlg=new OpenFileDialog{Title="Select any PNG inside your template folder",Filter="PNG files|*.png",CheckFileExists=true};
+  var dlg=new OpenFileDialog{Title="Install your CAWForge face template pack",Filter="Template pack ZIP or PNG|*.zip;*.png",CheckFileExists=true};
   if(dlg.ShowDialog(this)!=true)return;
-  var folder=Path.GetDirectoryName(dlg.FileName)!;
-  RefreshFusionLibrary(folder);
+  try{
+   Directory.CreateDirectory(InstalledFaceTemplates);
+   if(Path.GetExtension(dlg.FileName).Equals(".zip",StringComparison.OrdinalIgnoreCase)){
+    using var archive=System.IO.Compression.ZipFile.OpenRead(dlg.FileName);
+    int count=0;
+    foreach(var entry in archive.Entries){
+     if(!entry.FullName.EndsWith(".png",StringComparison.OrdinalIgnoreCase))continue;
+     var filename=Path.GetFileName(entry.FullName);
+     if(!System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(filename),@"^(?:Female(?: Template)? ?[1-9][0-9]*|Female Skintone [1-9][0-9]*|Male(?: Template)? ?[1-9][0-9]*|[FM][1-9][0-9]*)$",System.Text.RegularExpressions.RegexOptions.IgnoreCase))continue;
+     if(entry.Length>12000000)continue;
+     var target=Path.Combine(InstalledFaceTemplates,filename);
+     using(var input=entry.Open())using(var output=File.Create(target))input.CopyTo(output);
+     count++;
+    }
+    if(count==0)throw new InvalidDataException("No matching female or male template PNGs found in ZIP.");
+   }else{
+    File.Copy(dlg.FileName,Path.Combine(InstalledFaceTemplates,Path.GetFileName(dlg.FileName)),true);
+   }
+   RefreshFusionLibrary();
+   MessageBox.Show(this,$"{fusionLibrary.Count} face templates installed. They will be available automatically next time.","Template library");
+  }catch(Exception ex){MessageBox.Show(this,"Could not install templates: "+ex.Message,"Template library",MessageBoxButton.OK,MessageBoxImage.Error);}
  }
  private string? fusionTemplatePath;
  private void ImportFusionTemplate_Click(object sender,RoutedEventArgs e){
@@ -52,7 +89,7 @@ public partial class MainWindow : Window {
  private int recognitionVersion=0;
  private readonly Dictionary<string,Slider> morphSliders=new();
  private readonly Dictionary<string,List<StackPanel>> morphCategoryPanels=new();
- public MainWindow() { InitializeComponent(); RefreshFusionLibrary(Path.Combine(AppContext.BaseDirectory,"FaceTextureTemplates")); for(int i=1;i<=21;i++) TemplateBox.Items.Add("Template "+i); TemplateBox.SelectedIndex=9; foreach(var group in new (string Category,string[] Names)[]{("Head",new[]{"Head Width","Head Height","Head Depth"}),("Ears Top",new[]{"Offset","Height","Alignment"}),("Ears",new[]{"Ears Width","Ears Height","Vertical Stretch","Placement Low/High","Placement Forward/Back"}),("Earlobes",new[]{"Lobe Detachment","Lobe Length","Lobe Alignment"}),("Forehead Upper",new[]{"Forehead Upper Size"}),("Forehead",new[]{"Forehead Size"}),("Eyebrows",new[]{"Eyebrow Length","Eyebrow Depth","Eyebrow Corner Height Left","Eyebrow Corner Height Right","Eyebrow Outer Height Left","Eyebrow Outer Height Right"}),("Eyes",new[]{"Eye Length","Eye Socket Depth","Eye Corner Length","Eye Corner Height","Eye Outer Length","Eye Outer Height"}),("Nose",new[]{"Nose Width","Nose Height","Nose Depth"}),("Nose Bridge",new[]{"Nose Bridge Width","Nose Bridge Height","Nose Bridge Depth"}),("Nose Tip",new[]{"Nose Tip Width","Tip Pointed or Rounded","Nose Tip Length","Tip Height"}),("Nostrils",new[]{"Left Nostril Width","Left Nostril Height","Left Nostril Depth","Right Nostril Width","Right Nostril Height","Right Nostril Depth"}),("Philtrum",new[]{"Philtrum Width","Philtrum Depth"}),("Mouth",new[]{"Mouth Horizontal Length","Mouth Fullness","Mouth Depth","Left Mouth Corner Length","Right Mouth Corner Length","Left Mouth Corner Height","Right Mouth Corner Height"}),("Cheekbones",new[]{"Upper Cheekbone","Middle Cheekbone","Lower Cheekbone"}),("Cheeks",new[]{"Cheek Fullness","Cheek Height"}),("Jawline",new[]{"Middle Jaw Fullness","Lower Jaw Height","Lower Jaw Depth","Rear Jaw Fullness","Lower Jaw Fullness","Lower Jaw Length"}),("Chin",new[]{"Chin Width","Chin Height","Chin Forward/Back","Chin Vertical Placement"}),("Parietal Region",new[]{"Parietal Region Size"})}) {morphCategoryPanels[group.Category]=new List<StackPanel>(); foreach(var name in group.Names) {var panel=new StackPanel{Margin=new Thickness(0,0,0,8)};panel.Children.Add(new TextBlock{Text=group.Category+" / "+name,Foreground=System.Windows.Media.Brushes.White});panel.Children.Add(new Slider{Minimum=0,Maximum=100,Value=50,Width=360,HorizontalAlignment=HorizontalAlignment.Left});morphCategoryPanels[group.Category].Add(panel);morphSliders[group.Category+" / "+name]=(Slider)panel.Children[1];} var categoryName=group.Category;var categoryButton=new Button{Content=categoryName,Margin=new Thickness(0,0,8,8),Padding=new Thickness(12,7,12,7),MinWidth=110};categoryButton.Click+=(_,_)=>ShowMorphCategory(categoryName);MorphCategoryButtons.Children.Add(categoryButton);} ShowMorphCategory("Head"); }
+ public MainWindow() { InitializeComponent(); RefreshFusionLibrary(); for(int i=1;i<=21;i++) TemplateBox.Items.Add("Template "+i); TemplateBox.SelectedIndex=9; foreach(var group in new (string Category,string[] Names)[]{("Head",new[]{"Head Width","Head Height","Head Depth"}),("Ears Top",new[]{"Offset","Height","Alignment"}),("Ears",new[]{"Ears Width","Ears Height","Vertical Stretch","Placement Low/High","Placement Forward/Back"}),("Earlobes",new[]{"Lobe Detachment","Lobe Length","Lobe Alignment"}),("Forehead Upper",new[]{"Forehead Upper Size"}),("Forehead",new[]{"Forehead Size"}),("Eyebrows",new[]{"Eyebrow Length","Eyebrow Depth","Eyebrow Corner Height Left","Eyebrow Corner Height Right","Eyebrow Outer Height Left","Eyebrow Outer Height Right"}),("Eyes",new[]{"Eye Length","Eye Socket Depth","Eye Corner Length","Eye Corner Height","Eye Outer Length","Eye Outer Height"}),("Nose",new[]{"Nose Width","Nose Height","Nose Depth"}),("Nose Bridge",new[]{"Nose Bridge Width","Nose Bridge Height","Nose Bridge Depth"}),("Nose Tip",new[]{"Nose Tip Width","Tip Pointed or Rounded","Nose Tip Length","Tip Height"}),("Nostrils",new[]{"Left Nostril Width","Left Nostril Height","Left Nostril Depth","Right Nostril Width","Right Nostril Height","Right Nostril Depth"}),("Philtrum",new[]{"Philtrum Width","Philtrum Depth"}),("Mouth",new[]{"Mouth Horizontal Length","Mouth Fullness","Mouth Depth","Left Mouth Corner Length","Right Mouth Corner Length","Left Mouth Corner Height","Right Mouth Corner Height"}),("Cheekbones",new[]{"Upper Cheekbone","Middle Cheekbone","Lower Cheekbone"}),("Cheeks",new[]{"Cheek Fullness","Cheek Height"}),("Jawline",new[]{"Middle Jaw Fullness","Lower Jaw Height","Lower Jaw Depth","Rear Jaw Fullness","Lower Jaw Fullness","Lower Jaw Length"}),("Chin",new[]{"Chin Width","Chin Height","Chin Forward/Back","Chin Vertical Placement"}),("Parietal Region",new[]{"Parietal Region Size"})}) {morphCategoryPanels[group.Category]=new List<StackPanel>(); foreach(var name in group.Names) {var panel=new StackPanel{Margin=new Thickness(0,0,0,8)};panel.Children.Add(new TextBlock{Text=group.Category+" / "+name,Foreground=System.Windows.Media.Brushes.White});panel.Children.Add(new Slider{Minimum=0,Maximum=100,Value=50,Width=360,HorizontalAlignment=HorizontalAlignment.Left});morphCategoryPanels[group.Category].Add(panel);morphSliders[group.Category+" / "+name]=(Slider)panel.Children[1];} var categoryName=group.Category;var categoryButton=new Button{Content=categoryName,Margin=new Thickness(0,0,8,8),Padding=new Thickness(12,7,12,7),MinWidth=110};categoryButton.Click+=(_,_)=>ShowMorphCategory(categoryName);MorphCategoryButtons.Children.Add(categoryButton);} ShowMorphCategory("Head"); }
  private void ShowMorphCategory(string category){SlidersList.Items.Clear();ActiveMorphCategory.Text=category;foreach(var panel in morphCategoryPanels[category])SlidersList.Items.Add(panel);}
 
  private async void ImportPhoto_Click(object sender,RoutedEventArgs e)
