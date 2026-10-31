@@ -188,6 +188,24 @@ public partial class MainWindow : Window {
    if(found.Length==0)throw new InvalidDataException("No frontal face detected. Use a clear, straight-on reference photograph.");
    face=found.OrderByDescending(f=>f.Width*f.Height).First();
   }
+  // Validate that the detected region contains a genuine frontal pair of
+  // eyes. A collage of hair/cheeks can fool the generic face detector.
+  var eyeCascadePath=Path.Combine(AppContext.BaseDirectory,"Models","haarcascade_eye_tree_eyeglasses.xml");
+  if(!File.Exists(eyeCascadePath))throw new FileNotFoundException("Eye landmark classifier missing from this build.",eyeCascadePath);
+  using(var eyeDetector=new CascadeClassifier(eyeCascadePath)){
+   int upperHeight=Math.Min(src.Height-face.Y,Math.Max(1,(int)(face.Height*0.65)));
+   using var upperFace=new Mat(src,new OpenCvSharp.Rect(face.X,face.Y,face.Width,upperHeight));
+   var eyes=eyeDetector.DetectMultiScale(upperFace,1.07,3,minSize:new OpenCvSharp.Size(Math.Max(8,face.Width/11),Math.Max(8,face.Height/12)));
+   var candidates=eyes.Where(e=>e.Y+e.Height/2.0<upperHeight*0.86).OrderByDescending(e=>e.Width*e.Height).Take(8).ToArray();
+   bool pair=false;
+   for(int i=0;i<candidates.Length;i++)for(int j=i+1;j<candidates.Length;j++){
+    var e=candidates[i];var f=candidates[j];
+    double dx=Math.Abs((e.X+e.Width/2.0)-(f.X+f.Width/2.0));
+    double dy=Math.Abs((e.Y+e.Height/2.0)-(f.Y+f.Height/2.0));
+    if(dx>face.Width*0.19&&dx<face.Width*0.72&&dy<face.Height*0.17){pair=true;break;}
+   }
+   if(!pair)throw new InvalidDataException("Face Scan Fusion stopped: two aligned eyes could not be verified in the original reference photo. The input may be cropped, a collage, or not frontal. No broken texture was exported.");
+  }
   // Frame only the detected face. The former wide crop included clothing,
   // water bottles and stadium seating; none belong in a UV face texture.
   int left=Math.Max(0,(int)(face.X-face.Width*0.10));
@@ -282,6 +300,12 @@ public partial class MainWindow : Window {
      Mix(original.Item1,basis.Item1,offsets[1]),
      Mix(original.Item2,basis.Item2,offsets[2])));
    }
+  }
+  // Final sanity check: reject outputs that lost the face during processing.
+  // Do not overwrite a previously usable PNG with a broken export.
+  using(var faceCheck=new CascadeClassifier(classifierPath)){
+   var verified=faceCheck.DetectMultiScale(texture,1.08,3);
+   if(verified.Length==0)throw new InvalidDataException("Generated texture failed facial integrity validation. Export cancelled; use a clearer frontal reference photo.");
   }
   Cv2.ImEncode(".png",texture,out var bytes);
   return bytes;
