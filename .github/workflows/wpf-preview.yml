@@ -19,6 +19,20 @@ jobs:
           if ((Get-Item dist/Models/haarcascade_frontalface_default.xml).Length -lt 100000) { throw "Face classifier download is incomplete." }
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/opencv/opencv/4.10.0/data/haarcascades/haarcascade_eye_tree_eyeglasses.xml" -OutFile dist/Models/haarcascade_eye_tree_eyeglasses.xml
           if ((Get-Item dist/Models/haarcascade_eye_tree_eyeglasses.xml).Length -lt 100000) { throw "Eye classifier download is incomplete." }
+      - name: Download optional nose and mouth classifiers
+        shell: pwsh
+        run: |
+          $base = "https://raw.githubusercontent.com/opencv/opencv_contrib/4.10.0/modules/face/data/cascades"
+          foreach ($name in @("haarcascade_mcs_nose.xml", "haarcascade_mcs_mouth.xml")) {
+            $dest = "dist/Models/$name"
+            try {
+              Invoke-WebRequest -Uri "$base/$name" -OutFile $dest -ErrorAction Stop
+              if ((Get-Item $dest).Length -lt 10000) { Remove-Item $dest -Force }
+            } catch {
+              Write-Warning "Optional classifier $name unavailable; eye alignment remains enabled."
+              if (Test-Path $dest) { Remove-Item $dest -Force }
+            }
+          }
       - name: Publish standalone WPF app
         run: dotnet publish wpf/CAWForge.Wpf.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
       - name: Bundle local Real-ESRGAN Vulkan upscaler
