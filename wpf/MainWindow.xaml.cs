@@ -458,6 +458,18 @@ public partial class MainWindow : Window {
    using var master=Cv2.ImRead(masterPath,ImreadModes.Color);
    if(master.Empty()||master.Width!=820||master.Height!=820)
     throw new InvalidDataException("The selected face template must be an 820 x 820 PNG.");
+   // Engine 2.0: pixel-level skin probability mask. The source photograph
+   // must not contribute dark hair, clothing or transparent warp borders.
+   // Use YCrCb chroma rather than raw RGB brightness to retain skin shadows.
+   using var ycrcb=new Mat();
+   Cv2.CvtColor(aligned,ycrcb,OpenCvSharp.ColorConversionCodes.BGR2YCrCb);
+   using var skinMask=new Mat();
+   Cv2.InRange(ycrcb,new OpenCvSharp.Scalar(0,130,75),
+    new OpenCvSharp.Scalar(255,180,135),skinMask);
+   // A soft mask eliminates jagged cutouts and keeps the source facial
+   // features only where skin chroma is plausible.
+   using var softSkin=new Mat();
+   Cv2.GaussianBlur(skinMask,softSkin,new OpenCvSharp.Size(31,31),0);
    // Sample skin (not eyes, brows or lips) to match the entire template
    // to the reference. Sampling uses several cheek locations.
    var samples=new (int X,int Y)[]{(250,490),(280,530),(555,490),(535,530),(330,635),(490,635)};
@@ -497,8 +509,13 @@ public partial class MainWindow : Window {
     double templeKeep=Math.Clamp((Math.Min(x,819-x)-120.0)/115.0,0.0,1.0);
     templeKeep=templeKeep*templeKeep*(3-2*templeKeep);
     blend*=templeKeep;
+    // Do not copy non-skin pixels (hair, background, warp voids) into UV.
+    // Preserve eyes/brows/lips through a limited central-feature exception.
+    double skinConfidence=softSkin.At<byte>(y,x)/255.0;
+    bool feature=(x>=265&&x<=555&&((y>=330&&y<=405)||(y>=555&&y<=650)));
+    blend*=feature?Math.Max(0.60,skinConfidence):skinConfidence;
     // Brow region is fully photographic; never fade eyebrows away.
-    if(y>=325&&y<=410&&x>=240&&x<=580&&distance<0.83)blend=Math.Max(blend,foreheadKeep*templeKeep);
+    if(y>=325&&y<=410&&x>=240&&x<=580&&distance<0.83)blend=Math.Max(blend,foreheadKeep*templeKeep*Math.Max(0.60,skinConfidence));
     byte Mix(byte detail,byte template,double offset)=>
      (byte)Math.Clamp(detail*blend+Math.Clamp(template+offset,0,255)*(1-blend),0,255);
     texture.Set(y,x,new OpenCvSharp.Vec3b(
