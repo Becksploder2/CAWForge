@@ -291,6 +291,14 @@ public partial class MainWindow : Window {
     double distance=Math.Sqrt(dx*dx+dy*dy);
     double blend=Math.Clamp((1.0-distance)/0.20,0,1);
     blend=blend*blend*(3-2*blend);
+    // Neutral-expression mouth: for smiling reference photos, the
+    // template's closed, neutral mouth takes precedence in the lip region.
+    // Smooth feathering prevents rectangular mouth-patch boundaries.
+    double mouthX=(x-410.0)/155.0,mouthY=(y-610.0)/78.0;
+    double mouthRadius=Math.Sqrt(mouthX*mouthX+mouthY*mouthY);
+    double mouthNeutral=Math.Clamp((1.0-mouthRadius)/0.24,0.0,1.0);
+    mouthNeutral=mouthNeutral*mouthNeutral*(3-2*mouthNeutral);
+    blend*=1.0-mouthNeutral;
     // Brow region is fully photographic; never fade eyebrows away.
     if(y>=275&&y<=410&&x>=205&&x<=615&&distance<0.83)blend=1;
     byte Mix(byte detail,byte template,double offset)=>
