@@ -241,7 +241,10 @@ public partial class MainWindow : Window {
     double dy=Math.Abs((e.Y+e.Height/2.0)-(f.Y+f.Height/2.0));
     if(dx>face.Width*0.19&&dx<face.Width*0.72&&dy<face.Height*0.17){pair=true;break;}
    }
-   // Eye detection is advisory: glasses, smiles and makeup frequently cause false negatives.\n   // The primary frontal-face detection and other input checks still apply.\n   if(!pair)System.Diagnostics.Debug.WriteLine("CAWForge: eye-pair detector inconclusive; proceeding with frontal-face crop.");
+   // A missing eye pair means this basic crop cannot safely establish UV alignment.
+   // Never export a visibly mangled face merely to bypass a detector warning.
+   if(!pair)throw new InvalidDataException("The photo's eye positions could not be verified, so CAWForge cannot align this face safely. No texture was exported. Use a clear straight-on portrait with both eyes visible. Glasses can interfere with the current detector.");
+
   }
   // Frame only the detected face. The former wide crop included clothing,
   // water bottles and stadium seating; none belong in a UV face texture.
