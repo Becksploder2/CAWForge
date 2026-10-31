@@ -206,10 +206,15 @@ public partial class MainWindow : Window {
    var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();
    TexturePreview.Source=preview;
    StatusText.Text="Face texture saved to: "+output;
-   MessageBox.Show(this,"Face texture saved successfully:\\n"+output,"Export complete",MessageBoxButton.OK,MessageBoxImage.Information);
+   MessageBox.Show(this,"Face texture saved successfully:\
+"+output,"Export complete",MessageBoxButton.OK,MessageBoxImage.Information);
   }catch(Exception ex){
    StatusText.Text="Face texture save failed: "+ex.Message;
-   MessageBox.Show(this,"Could not save the face texture.\\n\\n"+ex.Message+"\\n\\nTry a local folder such as Pictures.","Face texture export failed",MessageBoxButton.OK,MessageBoxImage.Error);
+   MessageBox.Show(this,"Could not save the face texture.\
+\
+"+ex.Message+"\
+\
+Try a local folder such as Pictures.","Face texture export failed",MessageBoxButton.OK,MessageBoxImage.Error);
   }
  }
  private static byte[] MakeFaceTexture(string path,int upscale=1,string? masterPath=null){
@@ -258,7 +263,8 @@ public partial class MainWindow : Window {
   // eyes. A collage of hair/cheeks can fool the generic face detector.
   var eyeCascadePath=Path.Combine(AppContext.BaseDirectory,"Models","haarcascade_eye_tree_eyeglasses.xml");
   if(!File.Exists(eyeCascadePath))throw new FileNotFoundException("Eye landmark classifier missing from this build.",eyeCascadePath);
-  OpenCvSharp.Point2d leftEye=new(0,0),rightEye=new(0,0);\n  using(var eyeDetector=new CascadeClassifier(eyeCascadePath)){
+  OpenCvSharp.Point2d leftEye=new(0,0),rightEye=new(0,0);
+  using(var eyeDetector=new CascadeClassifier(eyeCascadePath)){
    int upperHeight=Math.Min(src.Height-face.Y,Math.Max(1,(int)(face.Height*0.65)));
    using var upperFace=new Mat(src,new OpenCvSharp.Rect(face.X,face.Y,face.Width,upperHeight));
    var eyes=eyeDetector.DetectMultiScale(upperFace,1.07,3,minSize:new OpenCvSharp.Size(Math.Max(8,face.Width/11),Math.Max(8,face.Height/12)));
@@ -268,7 +274,10 @@ public partial class MainWindow : Window {
     var e=candidates[i];var f=candidates[j];
     double dx=Math.Abs((e.X+e.Width/2.0)-(f.X+f.Width/2.0));
     double dy=Math.Abs((e.Y+e.Height/2.0)-(f.Y+f.Height/2.0));
-    if(dx>face.Width*0.19&&dx<face.Width*0.72&&dy<face.Height*0.17){\n     double score=dy+Math.Abs(dx-face.Width*0.43)*0.3;\n     if(score<bestPairScore){bestPairScore=score;pair=true;var p=new OpenCvSharp.Point2d(face.X+e.X+e.Width/2.0,face.Y+e.Y+e.Height/2.0);var q=new OpenCvSharp.Point2d(face.X+f.X+f.Width/2.0,face.Y+f.Y+f.Height/2.0);leftEye=p.X<q.X?p:q;rightEye=p.X<q.X?q:p;}\n    }
+    if(dx>face.Width*0.19&&dx<face.Width*0.72&&dy<face.Height*0.17){
+     double score=dy+Math.Abs(dx-face.Width*0.43)*0.3;
+     if(score<bestPairScore){bestPairScore=score;pair=true;var p=new OpenCvSharp.Point2d(face.X+e.X+e.Width/2.0,face.Y+e.Y+e.Height/2.0);var q=new OpenCvSharp.Point2d(face.X+f.X+f.Width/2.0,face.Y+f.Y+f.Height/2.0);leftEye=p.X<q.X?p:q;rightEye=p.X<q.X?q:p;}
+    }
    }
    // A missing eye pair means this basic crop cannot safely establish UV alignment.
    // Never export a visibly mangled face merely to bypass a detector warning.
@@ -589,7 +598,10 @@ public partial class MainWindow : Window {
    for(int i=0;i<4;i++)await File.WriteAllBytesAsync(Path.Combine(folder,prefix+"-"+names[i]+".png"),result[i]);
    using var ms=new MemoryStream(result[4]);var preview=new BitmapImage();preview.BeginInit();preview.StreamSource=ms;preview.CacheOption=BitmapCacheOption.OnLoad;preview.EndInit();preview.Freeze();AttirePreview.Source=preview;
    StatusText.Text="Saved four connected PNGs in "+folder;
-   MessageBox.Show(this,"Four connected panel PNGs saved to:\n"+folder+"\n\nFront, Back, Left and Right. Check garment UV orientation in-game.","Attire seam export",MessageBoxButton.OK,MessageBoxImage.Information);
+   MessageBox.Show(this,"Four connected panel PNGs saved to:
+"+folder+"
+
+Front, Back, Left and Right. Check garment UV orientation in-game.","Attire seam export",MessageBoxButton.OK,MessageBoxImage.Information);
   }catch(Exception ex){StatusText.Text="Seam connection failed: "+ex.Message;MessageBox.Show(this,ex.Message,"Attire seam connector",MessageBoxButton.OK,MessageBoxImage.Error);}
   finally{GenerateSeamsButton.IsEnabled=true;}
  }
