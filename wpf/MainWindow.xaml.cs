@@ -332,6 +332,50 @@ public partial class MainWindow : Window {
    Cv2.WarpAffine(aligned,registered,transform,new OpenCvSharp.Size(820,820),OpenCvSharp.InterpolationFlags.Linear,OpenCvSharp.BorderTypes.Constant,new OpenCvSharp.Scalar(0,0,0));
    registered.CopyTo(aligned);
   }
+  // Optional nose and mouth detection provides two additional facial anchors.
+  // Unlike an arbitrary full-image resize, local remapping moves each feature
+  // smoothly without introducing rectangular cut-and-paste boundaries.
+  var anchors=new List<(double X,double Y,double TargetX,double TargetY,double Radius)>{
+   (290,355,290,355,115),(530,355,530,355,115)
+  };
+  void DetectFeatureAnchor(string cascadeFile,int minY,int maxY,int targetX,int targetY,double radius){
+   var detectorFile=Path.Combine(AppContext.BaseDirectory,"Models",cascadeFile);
+   if(!File.Exists(detectorFile))return;
+   using var detector=new CascadeClassifier(detectorFile);
+   if(detector.Empty())return;
+   int height=Math.Max(1,maxY-minY);
+   using var region=new Mat(aligned,new OpenCvSharp.Rect(155,minY,510,height));
+   var detected=detector.DetectMultiScale(region,1.08,4,minSize:new OpenCvSharp.Size(25,20));
+   var choice=detected.OrderByDescending(f=>f.Width*f.Height)
+    .ThenBy(f=>Math.Abs((f.X+f.Width/2.0+155)-targetX)).FirstOrDefault();
+   if(choice.Width<1)return;
+   double centerX=155+choice.X+choice.Width/2.0;
+   double centerY=minY+choice.Y+choice.Height/2.0;
+   if(Math.Abs(centerX-targetX)>105||Math.Abs(centerY-targetY)>110)return;
+   anchors.Add((centerX,centerY,targetX,targetY,radius));
+  }
+  DetectFeatureAnchor("haarcascade_mcs_nose.xml",385,570,410,490,105);
+  DetectFeatureAnchor("haarcascade_mcs_mouth.xml",510,745,410,620,115);
+  if(anchors.Count>2){
+   using var mapX=new Mat(820,820,OpenCvSharp.MatType.CV_32FC1);
+   using var mapY=new Mat(820,820,OpenCvSharp.MatType.CV_32FC1);
+   for(int y=0;y<820;y++)for(int x=0;x<820;x++){
+    double sumWeight=0,shiftX=0,shiftY=0;
+    foreach(var anchor in anchors.Skip(2)){
+     double dist2=Math.Pow(x-anchor.TargetX,2)+Math.Pow(y-anchor.TargetY,2);
+     double weight=Math.Exp(-dist2/(2*anchor.Radius*anchor.Radius));
+     sumWeight+=weight;
+     shiftX+=weight*(anchor.X-anchor.TargetX);
+     shiftY+=weight*(anchor.Y-anchor.TargetY);
+    }
+    double normalization=Math.Max(1.0,sumWeight);
+    mapX.Set(y,x,(float)(x+shiftX/normalization));
+    mapY.Set(y,x,(float)(y+shiftY/normalization));
+   }
+   using var warped=new Mat();
+   Cv2.Remap(aligned,warped,mapX,mapY,OpenCvSharp.InterpolationFlags.Linear,OpenCvSharp.BorderTypes.Constant,new OpenCvSharp.Scalar(0,0,0));
+   warped.CopyTo(aligned);
+  }
   // Improve fine facial texture before compositing. Enhance local luminance
   // (pores, freckles, lips and eye details) without exaggerating skin color.
   using(var lab=new Mat()){
