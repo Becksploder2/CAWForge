@@ -197,6 +197,9 @@ public partial class MainWindow : Window {
     throw new InvalidDataException("Select an installed 820 x 820 skin template before exporting. A photograph alone cannot provide clean UV underskin.");
    if(Path.GetFullPath(source).Equals(Path.GetFullPath(master),StringComparison.OrdinalIgnoreCase))
     throw new InvalidDataException("The reference portrait and skin template cannot be the same file.");
+   // Engine 2.0 safety preflight: never feed a cropped or misdetected face
+   // to the legacy compositor. The segmentation/mesh engine is still pending.
+   await Task.Run(()=>ValidateFaceTextureSource(source,master));
    var png=await Task.Run(()=>MakeFaceTexture(source,upscale,master));
    if(png.Length==0)throw new InvalidDataException("The generated PNG is empty.");
    // Write atomically to avoid leaving behind a damaged partial PNG.
@@ -231,6 +234,35 @@ public partial class MainWindow : Window {
    StatusText.Text="Face texture save failed: "+ex.Message;
    MessageBox.Show(this,"Could not save the face texture. "+ex.Message+" Try a local folder such as Pictures.","Face texture export failed",MessageBoxButton.OK,MessageBoxImage.Error);
   }
+ }
+ private static void ValidateFaceTextureSource(string reference,string template){
+  using var photo=Cv2.ImRead(reference,ImreadModes.Color);
+  using var baseImage=Cv2.ImRead(template,ImreadModes.Color);
+  if(photo.Empty()||baseImage.Empty())throw new InvalidDataException("Reference or template cannot be read.");
+  if(baseImage.Width!=820||baseImage.Height!=820)throw new InvalidDataException("Skin template must be exactly 820 x 820.");
+  string classifier=Path.Combine(AppContext.BaseDirectory,"Models","haarcascade_frontalface_default.xml");
+  if(!File.Exists(classifier))throw new FileNotFoundException("Face detection model is missing.",classifier);
+  using var detector=new CascadeClassifier(classifier);
+  var faces=detector.DetectMultiScale(photo,1.1,5,minSize:new OpenCvSharp.Size(50,50));
+  if(faces.Length==0)throw new InvalidDataException("No usable face found in original reference.");
+  var face=faces.OrderByDescending(f=>f.Width*f.Height).First();
+  // The central facial region must contain a reasonable proportion of skin.
+  // This rejects the obvious bangs-over-face failure rather than claiming
+  // successful generation. The final engine will use learned segmentation.
+  int x0=Math.Max(0,face.X+(int)(face.Width*0.28));
+  int x1=Math.Min(photo.Width,face.X+(int)(face.Width*0.72));
+  int y0=Math.Max(0,face.Y+(int)(face.Height*0.18));
+  int y1=Math.Min(photo.Height,face.Y+(int)(face.Height*0.76));
+  int valid=0,total=0;
+  for(int y=y0;y<y1;y+=3)for(int x=x0;x<x1;x+=3){
+   var p=photo.At<OpenCvSharp.Vec3b>(y,x);
+   int b=p.Item0,g=p.Item1,r=p.Item2;
+   int max=Math.Max(r,Math.Max(g,b)),min=Math.Min(r,Math.Min(g,b));
+   if(r>65&&g>35&&b>20&&r>g*0.88&&r>b*1.08&&max-min>12&&Math.Abs(r-g)>8)valid++;
+   total++;
+  }
+  if(total==0||valid<(int)(total*0.34))
+   throw new InvalidDataException("Hair or shadow may be covering the central face. Export blocked to avoid another distorted texture. Full hair reconstruction requires the Engine 2.0 segmentation model.");
  }
  private static byte[] MakeFaceTexture(string path,int upscale=1,string? masterPath=null){
   using var src=Cv2.ImRead(path,ImreadModes.Color);
