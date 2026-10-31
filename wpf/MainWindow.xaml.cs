@@ -10,6 +10,17 @@ using System.Windows.Controls;
 using System.Windows.Media.Imaging;
 namespace CAWForge;
 public partial class MainWindow : Window {
+ private string? fusionTemplatePath;
+ private void ImportFusionTemplate_Click(object sender,RoutedEventArgs e){
+  var dlg=new OpenFileDialog{Title="Select 820 x 820 Sarina master face texture",Filter="PNG images|*.png",CheckFileExists=true};
+  if(dlg.ShowDialog(this)!=true)return;
+  using var check=Cv2.ImRead(dlg.FileName,ImreadModes.Color);
+  if(check.Empty()||check.Width!=820||check.Height!=820){
+   MessageBox.Show(this,"The master template must be a valid 820 x 820 PNG.","Face Scan Fusion",MessageBoxButton.OK,MessageBoxImage.Warning);return;
+  }
+  fusionTemplatePath=dlg.FileName;
+  FusionTemplateText.Text="Master: "+Path.GetFileName(dlg.FileName);
+ }
  private string? selectedPhoto;
  private string? attirePhoto;
  private int recognitionVersion=0;
@@ -87,7 +98,8 @@ public partial class MainWindow : Window {
   try{
    var source=selectedPhoto;
    int upscale=FaceUpscaleBox.SelectedIndex==1?2:FaceUpscaleBox.SelectedIndex==2?4:1;
-   var png=await Task.Run(()=>MakeFaceTexture(source,upscale));
+   var master=fusionTemplatePath;
+   var png=await Task.Run(()=>MakeFaceTexture(source,upscale,master));
    if(png.Length==0)throw new InvalidDataException("The generated PNG is empty.");
    // Write atomically to avoid leaving behind a damaged partial PNG.
    var folder=Path.GetDirectoryName(output);
@@ -108,7 +120,7 @@ public partial class MainWindow : Window {
    MessageBox.Show(this,"Could not save the face texture.\\n\\n"+ex.Message+"\\n\\nTry a local folder such as Pictures.","Face texture export failed",MessageBoxButton.OK,MessageBoxImage.Error);
   }
  }
- private static byte[] MakeFaceTexture(string path,int upscale=1){
+ private static byte[] MakeFaceTexture(string path,int upscale=1,string? masterPath=null){
   using var src=Cv2.ImRead(path,ImreadModes.Color);
   if(src.Empty())throw new InvalidDataException("Unable to decode reference photo.");
   if((long)src.Width*src.Height>35000000)throw new InvalidDataException("Image exceeds 35 megapixels.");
@@ -192,6 +204,37 @@ public partial class MainWindow : Window {
     (byte)Math.Clamp(p.Item0*alpha+bg.Item0*(1-alpha),0,255),
     (byte)Math.Clamp(p.Item1*alpha+bg.Item1*(1-alpha),0,255),
     (byte)Math.Clamp(p.Item2*alpha+bg.Item2*(1-alpha),0,255)));
+  }
+  if(!string.IsNullOrEmpty(masterPath)){
+   // Master supplies low-frequency layout and underskin; the imported face
+   // supplies high-frequency identity features. Avoid copying master features.
+   using var master=Cv2.ImRead(masterPath,ImreadModes.Color);
+   if(master.Empty()||master.Width!=820||master.Height!=820)throw new InvalidDataException("Fusion master must be an 820 x 820 PNG.");
+   using var masterSmooth=new Mat();
+   Cv2.GaussianBlur(master,masterSmooth,new OpenCvSharp.Size(0,0),26);
+   using var sourceSmooth=new Mat();
+   Cv2.GaussianBlur(texture,sourceSmooth,new OpenCvSharp.Size(0,0),26);
+   // Match master underskin color to the user's actual facial skin tone.
+   // Transfer only broad master texture structure, never eyes or lips.
+   for(int y=0;y<820;y++)for(int x=0;x<820;x++){
+    var original=texture.At<OpenCvSharp.Vec3b>(y,x);
+    var low=sourceSmooth.At<OpenCvSharp.Vec3b>(y,x);
+    var masterPixel=master.At<OpenCvSharp.Vec3b>(y,x);
+    var masterLow=masterSmooth.At<OpenCvSharp.Vec3b>(y,x);
+    double nx=(x-410.0)/410.0,ny=(y-465.0)/465.0;
+    double radial=Math.Sqrt(nx*nx+ny*ny);
+    double mix=Math.Clamp((radial-0.52)/0.35,0,1)*0.78;
+    // Eyebrows, eyes, nose and lips must come from the reference photo.
+    if(y>=255&&y<=445&&x>=175&&x<=645)mix=0;
+    byte Blend(byte detail,byte baseTone,byte template,byte templateLow){
+     double structure=Math.Clamp((int)template-(int)templateLow,-12,12);
+     return (byte)Math.Clamp(detail+structure*mix,0,255);
+    }
+    texture.Set(y,x,new OpenCvSharp.Vec3b(
+     Blend(original.Item0,low.Item0,masterPixel.Item0,masterLow.Item0),
+     Blend(original.Item1,low.Item1,masterPixel.Item1,masterLow.Item1),
+     Blend(original.Item2,low.Item2,masterPixel.Item2,masterLow.Item2)));
+   }
   }
   Cv2.ImEncode(".png",texture,out var bytes);
   return bytes;
