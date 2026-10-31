@@ -339,8 +339,17 @@ public partial class MainWindow : Window {
     double mouthNeutral=Math.Clamp((1.0-mouthRadius)/0.24,0.0,1.0);
     mouthNeutral=mouthNeutral*mouthNeutral*(3-2*mouthNeutral);
     blend*=1.0-mouthNeutral;
+    // Hair exclusion for the forehead and hairline: keep the template's
+    // clean skin above the brow rather than copying photo hair into the UV.
+    // Feather vertically and at the temples to avoid a straight seam.
+    double foreheadKeep=Math.Clamp((y-225.0)/100.0,0.0,1.0);
+    foreheadKeep=foreheadKeep*foreheadKeep*(3-2*foreheadKeep);
+    blend*=foreheadKeep;
+    double templeKeep=Math.Clamp((Math.Min(x,819-x)-120.0)/115.0,0.0,1.0);
+    templeKeep=templeKeep*templeKeep*(3-2*templeKeep);
+    blend*=templeKeep;
     // Brow region is fully photographic; never fade eyebrows away.
-    if(y>=275&&y<=410&&x>=205&&x<=615&&distance<0.83)blend=1;
+    if(y>=325&&y<=410&&x>=240&&x<=580&&distance<0.83)blend=Math.Max(blend,foreheadKeep*templeKeep);
     byte Mix(byte detail,byte template,double offset)=>
      (byte)Math.Clamp(detail*blend+Math.Clamp(template+offset,0,255)*(1-blend),0,255);
     texture.Set(y,x,new OpenCvSharp.Vec3b(
