@@ -211,55 +211,47 @@ public partial class MainWindow : Window {
    Cv2.GaussianBlur(aligned,blurred,new OpenCvSharp.Size(0,0),0.85);
    Cv2.AddWeighted(aligned,1.28,blurred,-0.28,0,aligned);
   }
-  // Continuous underskin: use low-frequency color from the actual photo,
-  // never a collection of pasted rectangular facial tiles.
-  using var softBase=new Mat();
-  Cv2.GaussianBlur(aligned,softBase,new OpenCvSharp.Size(0,0),72);
+  // Template is the actual seamless UV base. Never tile rectangular photo
+  // patches or use a blurred copy of the original photo as the underskin.
   using var texture=new Mat(new OpenCvSharp.Size(820,820),OpenCvSharp.MatType.CV_8UC3);
-  for(int y=0;y<820;y++)for(int x=0;x<820;x++){
-   double nx=(x-410.0)/410.0,ny=(y-470.0)/470.0;
-   // Smooth mask with no abrupt rectangular seams. Facial detail is kept
-   // through the eyes, eyebrows, nose and mouth.
-   double extent=Math.Sqrt(nx*nx*0.85+ny*ny*0.65);
-   double alpha=Math.Clamp((0.99-extent)/0.32,0.0,1.0);
-   alpha=alpha*alpha*(3-2*alpha);
-   if(y>=275&&y<=430&&x>=190&&x<=630)alpha=Math.Max(alpha,0.98);
-   var p=aligned.At<OpenCvSharp.Vec3b>(y,x);
-   var bg=softBase.At<OpenCvSharp.Vec3b>(y,x);
-   texture.Set(y,x,new OpenCvSharp.Vec3b(
-    (byte)Math.Clamp(p.Item0*alpha+bg.Item0*(1-alpha),0,255),
-    (byte)Math.Clamp(p.Item1*alpha+bg.Item1*(1-alpha),0,255),
-    (byte)Math.Clamp(p.Item2*alpha+bg.Item2*(1-alpha),0,255)));
-  }
-  if(!string.IsNullOrEmpty(masterPath)){
-   // Master supplies low-frequency layout and underskin; the imported face
-   // supplies high-frequency identity features. Avoid copying master features.
+  if(string.IsNullOrEmpty(masterPath)){
+   // Without a template, return a continuous photographic face rather than
+   // fabricate an underskin from arbitrary blocks.
+   aligned.CopyTo(texture);
+  }else{
    using var master=Cv2.ImRead(masterPath,ImreadModes.Color);
-   if(master.Empty()||master.Width!=820||master.Height!=820)throw new InvalidDataException("Fusion master must be an 820 x 820 PNG.");
-   using var masterSmooth=new Mat();
-   Cv2.GaussianBlur(master,masterSmooth,new OpenCvSharp.Size(0,0),26);
-   using var sourceSmooth=new Mat();
-   Cv2.GaussianBlur(texture,sourceSmooth,new OpenCvSharp.Size(0,0),26);
-   // Match master underskin color to the user's actual facial skin tone.
-   // Transfer only broad master texture structure, never eyes or lips.
+   if(master.Empty()||master.Width!=820||master.Height!=820)
+    throw new InvalidDataException("The selected face template must be an 820 x 820 PNG.");
+   // Sample skin (not eyes, brows or lips) to match the entire template
+   // to the reference. Sampling uses several cheek locations.
+   var samples=new (int X,int Y)[]{(250,490),(280,530),(555,490),(535,530),(330,635),(490,635)};
+   double[] offsets=new double[3];
+   foreach(var point in samples){
+    var facePixel=aligned.At<OpenCvSharp.Vec3b>(point.Y,point.X);
+    var basePixel=master.At<OpenCvSharp.Vec3b>(point.Y,point.X);
+    offsets[0]+=facePixel.Item0-basePixel.Item0;
+    offsets[1]+=facePixel.Item1-basePixel.Item1;
+    offsets[2]+=facePixel.Item2-basePixel.Item2;
+   }
+   for(int k=0;k<3;k++)offsets[k]=Math.Clamp(offsets[k]/samples.Length,-85,85);
+   // A broad oval replaces template identity details with the user's
+   // photographed features; outer UV and ears stay template-shaped.
+   // A smoothstep feather has no straight rectangular boundaries.
    for(int y=0;y<820;y++)for(int x=0;x<820;x++){
-    var original=texture.At<OpenCvSharp.Vec3b>(y,x);
-    var low=sourceSmooth.At<OpenCvSharp.Vec3b>(y,x);
-    var masterPixel=master.At<OpenCvSharp.Vec3b>(y,x);
-    var masterLow=masterSmooth.At<OpenCvSharp.Vec3b>(y,x);
-    double nx=(x-410.0)/410.0,ny=(y-465.0)/465.0;
-    double radial=Math.Sqrt(nx*nx+ny*ny);
-    double mix=Math.Clamp((radial-0.52)/0.35,0,1)*0.78;
-    // Eyebrows, eyes, nose and lips must come from the reference photo.
-    if(y>=255&&y<=445&&x>=175&&x<=645)mix=0;
-    byte Blend(byte detail,byte baseTone,byte template,byte templateLow){
-     double structure=Math.Clamp((int)template-(int)templateLow,-12,12);
-     return (byte)Math.Clamp(detail+structure*mix,0,255);
-    }
+    var original=aligned.At<OpenCvSharp.Vec3b>(y,x);
+    var basis=master.At<OpenCvSharp.Vec3b>(y,x);
+    double dx=(x-410.0)/305.0,dy=(y-460.0)/350.0;
+    double distance=Math.Sqrt(dx*dx+dy*dy);
+    double blend=Math.Clamp((1.0-distance)/0.20,0,1);
+    blend=blend*blend*(3-2*blend);
+    // Brow region is fully photographic; never fade eyebrows away.
+    if(y>=275&&y<=410&&x>=205&&x<=615&&distance<0.83)blend=1;
+    byte Mix(byte detail,byte template,double offset)=>
+     (byte)Math.Clamp(detail*blend+Math.Clamp(template+offset,0,255)*(1-blend),0,255);
     texture.Set(y,x,new OpenCvSharp.Vec3b(
-     Blend(original.Item0,low.Item0,masterPixel.Item0,masterLow.Item0),
-     Blend(original.Item1,low.Item1,masterPixel.Item1,masterLow.Item1),
-     Blend(original.Item2,low.Item2,masterPixel.Item2,masterLow.Item2)));
+     Mix(original.Item0,basis.Item0,offsets[0]),
+     Mix(original.Item1,basis.Item1,offsets[1]),
+     Mix(original.Item2,basis.Item2,offsets[2])));
    }
   }
   Cv2.ImEncode(".png",texture,out var bytes);
