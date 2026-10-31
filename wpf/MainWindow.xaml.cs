@@ -358,6 +358,31 @@ public partial class MainWindow : Window {
      Mix(original.Item2,basis.Item2,offsets[2])));
    }
   }
+  // Reject conspicuous straight-line discontinuities in the generated face.
+  // Face detection alone cannot recognize a four-quadrant collage.
+  double SeamStrength(bool vertical,int coordinate){
+   int length=vertical?texture.Height:texture.Width;
+   double sum=0;int count=0;
+   for(int t=(int)(length*0.18);t<(int)(length*0.82);t+=3){
+    int x=vertical?coordinate:t,y=vertical?t:coordinate;
+    if(x<4||x>=texture.Width-4||y<4||y>=texture.Height-4)continue;
+    var left=texture.At<OpenCvSharp.Vec3b>(vertical?y:y-1,vertical?x-1:x);
+    var right=texture.At<OpenCvSharp.Vec3b>(vertical?y:y+1,vertical?x+1:x);
+    var before=texture.At<OpenCvSharp.Vec3b>(vertical?y:y-3,vertical?x-3:x);
+    var after=texture.At<OpenCvSharp.Vec3b>(vertical?y:y+3,vertical?x+3:x);
+    double jump=Math.Abs((int)left.Item0-right.Item0)+Math.Abs((int)left.Item1-right.Item1)+Math.Abs((int)left.Item2-right.Item2);
+    double natural=(Math.Abs((int)before.Item0-left.Item0)+Math.Abs((int)before.Item1-left.Item1)+Math.Abs((int)before.Item2-left.Item2)+Math.Abs((int)after.Item0-right.Item0)+Math.Abs((int)after.Item1-right.Item1)+Math.Abs((int)after.Item2-right.Item2))/2.0;
+    sum+=Math.Max(0,jump-natural);count++;
+   }
+   return sum/Math.Max(1,count);
+  }
+  double worstVertical=0,worstHorizontal=0;
+  for(int pos=140;pos<680;pos+=4){
+   worstVertical=Math.Max(worstVertical,SeamStrength(true,pos));
+   worstHorizontal=Math.Max(worstHorizontal,SeamStrength(false,pos));
+  }
+  if(worstVertical>32&&worstHorizontal>32)
+   throw new InvalidDataException("Face texture contains suspicious straight vertical and horizontal seams. Export stopped to avoid another patchwork face. This photo requires landmark-based alignment, which is not yet supported.");
   // Final sanity check: reject outputs that lost the face during processing.
   // Do not overwrite a previously usable PNG with a broken export.
   using(var faceCheck=new CascadeClassifier(classifierPath)){
