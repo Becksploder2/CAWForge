@@ -248,6 +248,7 @@ func suggestedMorph(photo,reference []float64)map[string]int{
  }}
  return out
 }
+func maxInt(a,b int)int{if a>b{return a};return b}
 func generateTexture(photoPath,outPath string)error{
  imageWorkGate<-struct{}{}
  defer func(){<-imageWorkGate}()
@@ -264,11 +265,15 @@ func generateTexture(photoPath,outPath string)error{
  x0:=cx-cropW/2;y0:=cy-cropH/2
  if x0<b.Min.X{x0=b.Min.X};if y0<b.Min.Y{y0=b.Min.Y}
  if x0+cropW>b.Max.X{x0=b.Max.X-cropW};if y0+cropH>b.Max.Y{y0=b.Max.Y-cropH}
- // Sample central cheek regions to create a seamless surrounding skin field.
- sample:=[]image.Point{{cx-cropW/6,cy},{cx+cropW/6,cy},{cx,cy+cropH/5}}
+ // Sample skin-color candidates from the crop instead of the full photo.
+ // Clamping prevents malformed/out-of-bounds sampling on unusual aspect ratios.
+ sample:=[]image.Point{{x0+cropW*35/100,y0+cropH*48/100},{x0+cropW*65/100,y0+cropH*48/100},{x0+cropW/2,y0+cropH*63/100}}
  var sr,sg,sb uint64
- for _,p:=range sample{r,g,bb,_:=im.At(p.X,p.Y).RGBA();sr+=uint64(r>>8);sg+=uint64(g>>8);sb+=uint64(bb>>8)}
- bg:=color.RGBA{uint8(sr/3),uint8(sg/3),uint8(sb/3),255}
+ for _,p:=range sample{
+  px:=maxInt(b.Min.X,minInt(b.Max.X-1,p.X));py:=maxInt(b.Min.Y,minInt(b.Max.Y-1,p.Y))
+  r,g,bb,_:=im.At(px,py).RGBA();sr+=uint64(r>>8);sg+=uint64(g>>8);sb+=uint64(bb>>8)
+ }
+ bg:=color.RGBA{uint8(sr/uint64(len(sample))),uint8(sg/uint64(len(sample))),uint8(sb/uint64(len(sample))),255}
  dst:=image.NewRGBA(image.Rect(0,0,820,820))
  for y:=0;y<820;y++{for x:=0;x<820;x++{
   // Oval excludes outer photographic backdrop; soft edges blend into skin.
