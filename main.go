@@ -411,13 +411,25 @@ func startTexture(){
  go func(){
   home,_:=os.UserHomeDir()
   if home==""{home=os.TempDir()}
-  dir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
-  err:=os.MkdirAll(dir,0755)
-  path:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png")
-  traceTexture("Texture generation started")
-  if err==nil{err=generateTexture(photo,path)}
-  if err!=nil{traceTexture("Texture error: "+err.Error())}else{traceTexture("Texture generation completed")}
-  if err==nil{_ = writeFacePrompt(path)}
+  filename:=strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png"
+  // Documents may be redirected to OneDrive or unavailable on some machines.
+  // Try user-controlled folders before treating a valid texture as a failed export.
+  dirs:=[]string{filepath.Join(home,"Documents","CAWForge","FaceTextures"),filepath.Join(home,"Pictures","CAWForge","FaceTextures"),filepath.Join(home,"CAWForge","FaceTextures")}
+  var path string
+  var err error
+  traceTexture("Standard texture generation started: "+photo)
+  for _,dir:=range dirs{
+   if e:=os.MkdirAll(dir,0755);e!=nil{err=e;traceTexture("Output folder unavailable: "+dir+": "+e.Error());continue}
+   candidate:=filepath.Join(dir,filename)
+   if e:=generateTexture(photo,candidate);e!=nil{
+    err=e;traceTexture("Texture output failed: "+candidate+": "+e.Error())
+    // Input decoding/geometry errors cannot be fixed by changing folders.
+    if _,statErr:=os.Stat(candidate);statErr==nil{_ = os.Remove(candidate)}
+    continue
+   }
+   path=candidate;err=nil;break
+  }
+  if err!=nil{traceTexture("Texture error: "+err.Error())}else{traceTexture("Texture saved: "+path);_ = writeFacePrompt(path)}
   matchMu.Lock()
   if err!=nil{faceTextureStatus="Texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="Saved: "+path;faceTexturePreviewPath=path}
   matchMu.Unlock()
