@@ -590,6 +590,7 @@ func beginPicker(save bool){
  pickerBusy=true
  // Keep the message loop free of synchronous diagnostics disk I/O.
  set(25,"Opening Windows photo picker...")
+ if currentTab==1{set(203,"Opening photo picker...")}
  templateMode:=templatePickerMode
  gridMode:=gridPickerMode
  go func(){
@@ -658,6 +659,7 @@ func validatePhotoAsync(path string){
  importTrace("photo validation scheduled")
  photoImportMu.Lock();photoImportSerial++;serial:=photoImportSerial;photoImportMu.Unlock()
  set(25,"Checking reference photo in background...")
+ if currentTab==1{set(203,"Checking reference photo in background...")}
  go func(){
   var failure string
   info,err:=os.Stat(path)
@@ -867,7 +869,7 @@ case WM_UPDATE_DOWNLOADED:
 case WM_PHOTO_VALIDATED:
  importTrace("photo validated UI handler entered")
  photoImportMu.Lock();path,err:=photoImportPath,photoImportError;photoImportMu.Unlock()
- if err!=""{set(25,"Photo import failed: "+err);importTrace("photo validated UI handler exited with error");return 0}
+ if err!=""{set(25,"Photo import failed: "+err);if currentTab==1{set(203,"Photo import failed: "+err)};importTrace("photo validated UI handler exited with error");return 0}
  imagePath=path
  set(25,"Photo loaded: "+filepath.Base(path))
  importTrace("photo loaded status set")
