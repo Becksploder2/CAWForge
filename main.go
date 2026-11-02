@@ -1107,6 +1107,8 @@ func applyUpdate(zipPath,installDir,pidText string)error{
 }
 
 func main(){
+ runtime.LockOSThread()
+ defer runtime.UnlockOSThread()
  if len(os.Args)==5 && os.Args[1]=="--apply-update" {if err:=applyUpdate(os.Args[2],os.Args[3],os.Args[4]);err!=nil{os.WriteFile(filepath.Join(os.TempDir(),"CAWForge-update-error.txt"),[]byte(err.Error()),0644)};return}
  // Run the native Windows file picker in a separate process, so a hung
  // shell extension cannot block the main application's message loop.
