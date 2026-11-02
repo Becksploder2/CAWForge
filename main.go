@@ -621,11 +621,11 @@ func beginPicker(save bool){
    if err==nil{path=strings.TrimSpace(stdout.String())}
    if err!=nil && stderr.Len()>0{err=fmt.Errorf("%v: %s",err,stderr.String())}
   }
-  traceTexture("Photo picker process returned")
+  importTrace("Photo picker process returned")
   pickerMu.Lock();pickerResult=path;pickerErr="";if err!=nil{pickerErr=err.Error()};pickerMu.Unlock()
   var modeFlag uintptr
   if save{modeFlag=1}else if gridMode=="M"{modeFlag=3}else if gridMode=="F"{modeFlag=4}else if templateMode{modeFlag=2}
-  postMessage.Call(hwnd,WM_PICKER_DONE,modeFlag,0)
+  if ok,_,_:=postMessage.Call(hwnd,WM_PICKER_DONE,modeFlag,0);ok==0{importTrace("ERROR: failed to post picker completion event")}
  }()
 }
 
@@ -689,7 +689,7 @@ func validatePhotoAsync(path string){
   if failure!=""{importTrace("photo validation failed: "+failure)}else{importTrace("photo validation passed")}
   photoImportMu.Unlock()
   importTrace("posting photo validated message")
-  postMessage.Call(hwnd,WM_PHOTO_VALIDATED,0,0)
+  if ok,_,_:=postMessage.Call(hwnd,WM_PHOTO_VALIDATED,0,0);ok==0{importTrace("ERROR: failed to post photo validation event")}
  }()
 }
 func acceptPhoto(path string){
