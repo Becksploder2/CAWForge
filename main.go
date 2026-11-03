@@ -619,7 +619,7 @@ func switchTab(n int){
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
  for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
- for _,id:=range []int{320,321,322,323,324}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
+ for _,id:=range []int{321,322,323,324}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
 }
 
 var values=map[string]int{}
