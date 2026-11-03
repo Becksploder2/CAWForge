@@ -1,0 +1,27 @@
+name: CAWForge Windows test build
+on:
+  push:
+    branches:
+      - feature/attire-auto-seam-connect
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Build Windows app
+        shell: pwsh
+        run: |
+          go build -trimpath -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
+      - name: Upload Windows test executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAWForge-Windows-Render-Seam-Test
+          path: CAWForge_Studio_Windows.exe
+          if-no-files-found: error
