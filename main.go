@@ -276,21 +276,22 @@ func generateTexture(photoPath,outPath string)error{
  bg:=color.RGBA{uint8(sr/uint64(len(sample))),uint8(sg/uint64(len(sample))),uint8(sb/uint64(len(sample))),255}
  dst:=image.NewRGBA(image.Rect(0,0,820,820))
  for y:=0;y<820;y++{for x:=0;x<820;x++{
-  // Oval excludes outer photographic backdrop; soft edges blend into skin.
-  fx:=(float64(x)-106)/608;fy:=(float64(y)-25)/770
-  nx:=(fx-0.5)/0.5;ny:=(fy-0.5)/0.5
-  radius:=math.Sqrt(nx*nx+ny*ny)
-  alpha:=math.Max(0,math.Min(1,(0.88-radius)/0.16))
-  if fx<0||fx>=1||fy<0||fy>=1||alpha<=0{dst.SetRGBA(x,y,bg);continue}
-  sx:=x0+int(fx*float64(cropW));sy:=y0+int(fy*float64(cropH))
+  // Rectangular, edge-feathered crop: no elliptical halo or circular cutoff.
+  // The standard mode is deliberately non-generative: it cannot close a smile
+  // or reconstruct skin hidden by hair. Use Local AI for those operations.
+  fx:=float64(x)/819;fy:=float64(y)/819
+  sx:=x0+minInt(cropW-1,int(fx*float64(cropW-1)))
+  sy:=y0+minInt(cropH-1,int(fy*float64(cropH-1)))
   r,g,bb,_:=im.At(sx,sy).RGBA()
+  edge:=math.Min(math.Min(float64(x),float64(819-x)),math.Min(float64(y),float64(819-y)))
+  alpha:=math.Min(1,math.Max(0,edge/115))
   dst.SetRGBA(x,y,color.RGBA{uint8(alpha*float64(r>>8)+(1-alpha)*float64(bg.R)),uint8(alpha*float64(g>>8)+(1-alpha)*float64(bg.G)),uint8(alpha*float64(bb>>8)+(1-alpha)*float64(bg.B)),255})
  }}
  o,err:=os.Create(outPath);if err!=nil{return err};defer o.Close()
  return png.Encode(o,dst)
 }
 
-const faceTexturePrompt = `Create an 820x820 photorealistic WWE 2K26 face texture from the imported reference photograph. Preserve the person's real facial proportions, eye placement, nose shape, lips, makeup, natural skin tone, pores and recognizable details. Perfectly frontal, symmetrical alignment, neutral expression, even neutral studio lighting. No hair, no ears, no glasses, no accessories, no dark jawline or chin shadow, no harsh face boundary, no text or background objects. Surround the face with seamlessly blended matching skin texture, maintaining natural realistic pores. Align eyes, nose, mouth, forehead and jaw to the selected in-game face template; prioritize accurate template placement and smooth transitions over stylization. Do not invent or change the person's facial features.`
+const faceTexturePrompt = `Create an 820x820 photorealistic WWE 2K26 face texture from the imported reference photograph. Preserve the person's real facial proportions, eye placement, nose shape, lips, makeup, natural skin tone, pores and recognizable details. Perfectly frontal, symmetrical alignment, neutral expression, even neutral studio lighting. Completely remove hair including bangs and side hair, remove ears, keep natural eyebrows, close lips into a relaxed neutral expression with no teeth visible, remove glasses and accessories, no dark jawline or chin shadow, no circular or oval vignette, no visible cutout boundary, no text or background objects. Surround the face with seamlessly blended matching skin texture, maintaining natural realistic pores. Align eyes, nose, mouth, forehead and jaw to the selected in-game face template; prioritize accurate template placement and smooth transitions over stylization. Do not invent or change the person's facial features.`
 func writeFacePrompt(path string)error{
  folder:=filepath.Dir(path)
  return os.WriteFile(filepath.Join(folder,"WWE_Face_Texture_Generation_Prompt.txt"),[]byte(faceTexturePrompt+"\r\n"),0644)
@@ -1223,7 +1224,7 @@ func main(){
  ctl("EDIT","",665,625,410,51,30,WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|ES_READONLY);drawGroup();
  ctl("BUTTON","Import Face Photo",30,305,340,40,217,0);
  ctl("BUTTON","Generate 820 x 820 Face Texture",30,365,340,40,201,0);
- ctl("STATIC","Centered front-facing photo recommended. Texture is a provisional crop with feathered edges; not a verified game UV layout.",30,645,980,45,203,0);
+ ctl("STATIC","Centered front-facing photo recommended. Standard crop cannot remove hair or neutralize smiles. For those, use Generate with Local AI. Not a verified game UV layout.",30,645,980,45,203,0);
  ctl("STATIC","FACE TEXTURE PREVIEW (320 x 320)",425,110,500,28,204,0);
  ctl("STATIC","",425,150,320,320,205,SS_BITMAP|WS_BORDER);
  ctl("STATIC","Local AI uses the embedded WWE 2K26 master prompt, current template and ComfyUI. Output 820x820. A compatible image-editing workflow is required.",30,495,990,35,206,0);
