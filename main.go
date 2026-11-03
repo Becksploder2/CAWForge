@@ -489,7 +489,7 @@ func removeRenderBackground(path string)(string,error){
  for x:=0;x<w;x++{seed(x);seed((h-1)*w+x)}
  for y:=0;y<h;y++{seed(y*w);seed(y*w+w-1)}
  for head:=0;head<len(queue);head++{
-  i:=queue[head];x,y:=i%w,i/w
+  i:=queue[head];y:=i/w
   for _,j:=range []int{i-1,i+1,i-w,i+w}{
    if j<0||j>=w*h||mask[j]||((j==i-1||j==i+1)&&j/w!=y){continue}
    if near(get(j))&&dist(get(j),get(i))<28*28{mask[j]=true;queue=append(queue,j)}
