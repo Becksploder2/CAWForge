@@ -472,6 +472,47 @@ func exportSeamPanels(src image.Image,dir,stem string)error{
  }
  return nil
 }
+// Render Creator retains source RGB values; only alpha changes.
+// This conservative border-connected background mask is intended for plain CAS backdrops.
+func removeRenderBackground(path string)(string,error){
+ f,e:=os.Open(path);if e!=nil{return "",e};src,_,e:=image.Decode(f);f.Close();if e!=nil{return "",e}
+ b:=src.Bounds();w,h:=b.Dx(),b.Dy();if w<16||h<16||int64(w)*int64(h)>32000000{return "",fmt.Errorf("unsupported screenshot size")}
+ img:=image.NewNRGBA(image.Rect(0,0,w,h));draw.Draw(img,img.Bounds(),src,b.Min,draw.Src)
+ type rgb struct{r,g,b int}
+ get:=func(i int)rgb{j:=i*4;return rgb{int(img.Pix[j]),int(img.Pix[j+1]),int(img.Pix[j+2])}}
+ dist:=func(a,b rgb)int{dr:=a.r-b.r;dg:=a.g-b.g;db:=a.b-b.b;return dr*dr+dg*dg+db*db}
+ corners:=[]rgb{get(0),get(w-1),get((h-1)*w),get(w*h-1)}
+ near:=func(p rgb)bool{for _,c:=range corners{if dist(p,c)<24*24{return true}};return false}
+ mask:=make([]bool,w*h);queue:=make([]int,0,w*h/4)
+ seed:=func(i int){if !mask[i]&&near(get(i)){mask[i]=true;queue=append(queue,i)}}
+ for x:=0;x<w;x++{seed(x);seed((h-1)*w+x)}
+ for y:=0;y<h;y++{seed(y*w);seed(y*w+w-1)}
+ for head:=0;head<len(queue);head++{
+  i:=queue[head];x,y:=i%w,i/w
+  for _,j:=range []int{i-1,i+1,i-w,i+w}{
+   if j<0||j>=w*h||mask[j]||((j==i-1||j==i+1)&&j/w!=y){continue}
+   if near(get(j))&&dist(get(j),get(i))<28*28{mask[j]=true;queue=append(queue,j)}
+  }
+ }
+ for i,removed:=range mask{if removed{img.Pix[i*4+3]=0}}
+ name:=strings.TrimSuffix(filepath.Base(path),filepath.Ext(path))
+ out:=filepath.Join(filepath.Dir(path),name+"_caw_transparent.png")
+ dest,e:=os.Create(out);if e!=nil{return "",e};e=png.Encode(dest,img);ce:=dest.Close();if e!=nil{return "",e};if ce!=nil{return "",ce}
+ return out,nil
+}
+func startRenderCutout(){
+ if imagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
+ if renderBusy{return};renderBusy=true;set(322,"Removing background (original CAW pixels preserved)...")
+ path:=imagePath
+ go func(){
+  output,err:=removeRenderBackground(path)
+  matchMu.Lock();if err!=nil{renderStatus="Cutout failed: "+err.Error()}else{renderStatus="Transparent PNG: "+output+" (plain backgrounds only; verify edges)"};matchMu.Unlock()
+  postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
+ }()
+}
+var renderBusy bool
+var renderStatus string
+const WM_RENDER_DONE=0x8029
 func proceduralGraphic(kind,description string) (string,error) {
  desc:=strings.ToLower(description)
  width,height:=1024,1024
@@ -578,6 +619,7 @@ func switchTab(n int){
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
  for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
+ for _,id:=range []int{320,321,322,323,324}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
 }
 
 var values=map[string]int{}
@@ -947,6 +989,7 @@ case WM_TIMER:
 case WM_MATCH_DONE:
  matchMu.Lock();message,best,estimated:=matchMessage,matchID,morphResult;matchMu.Unlock();matchRunning=false
  if best!="" && strings.HasPrefix(best,gender){n,_:=strconv.Atoi(best[1:]);template=n;send.Call(ctrls[3],CB_SETCURSEL,uintptr(n-1),0);set(23,best);for key,value:=range estimated{values[key]=value};drawGroup();updateMorphPreview()};set(41,message);if matchQueued{matchQueued=false;matchPhoto()};return 0
+case WM_RENDER_DONE:matchMu.Lock();status:=renderStatus;matchMu.Unlock();renderBusy=false;set(322,status);return 0
 case WM_GRAPHIC_DONE:
  matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);return 0
 case WM_AI_DONE:
@@ -995,7 +1038,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -1167,7 +1210,7 @@ func main(){
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
  ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.32",20,15,565,28,0,0);
- ctl("BUTTON","Morph Settings",610,12,145,32,200,0);ctl("BUTTON","Face Texture",765,12,140,32,202,0);ctl("BUTTON","Graphic Generator",915,12,180,32,300,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
+ ctl("BUTTON","Morph Settings",610,12,145,32,200,0);ctl("BUTTON","Face Texture",765,12,140,32,202,0);ctl("BUTTON","Graphic Generator",915,12,180,32,300,0);ctl("BUTTON","Render Creator",915,48,180,30,320,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%6)*172,255+(i/6)*38,165,31,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
@@ -1206,6 +1249,10 @@ func main(){
  ctl("EDIT","Burnt orange and white plaid",30,275,650,35,305,WS_BORDER);
  ctl("STATIC","Creates patterned PNG assets locally. This is PROCEDURAL generation, not generative AI; logos contain no AI-generated lettering or characters.",30,390,980,70,306,0);
  ctl("BUTTON","Generate Graphic PNG",30,330,280,42,307,0);
+ ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
+ ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
+ ctl("BUTTON","Remove Background + Export PNG",30,245,380,42,323,0);
+ ctl("STATIC","Import a screenshot first. Plain CAS backgrounds supported; busy arena scenes require AI segmentation. Original character RGB is never regenerated.",30,315,1000,100,322,0);
  ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
  ctl("BUTTON","Auto Seam Connect: true",30,515,235,34,308,0);
  ctl("BUTTON","Top sides: true",275,515,195,34,309,0);
