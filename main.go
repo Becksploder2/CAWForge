@@ -21,6 +21,7 @@ import (
  _ "image/gif"
  "encoding/json"
  "encoding/base64"
+ "mime/multipart"
  "math"
  "sort"
  "time"
@@ -402,39 +403,55 @@ func traceTexture(event string){
  defer f.Close()
  fmt.Fprintf(f,"%s %s\n",time.Now().Format(time.RFC3339Nano),event)
 }
+// Generate an edited face texture from the actual reference photo.
+// The old crop mode produced portraits and could never remove hair or smiles.
+func generateEditedFaceTexture(photo,out string)error{
+ key:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+ if key==""{return fmt.Errorf("real face texture generation needs OPENAI_API_KEY; the old portrait-crop exporter has been disabled")}
+ f,err:=os.Open(photo);if err!=nil{return err};defer f.Close()
+ var body bytes.Buffer
+ writer:=multipart.NewWriter(&body)
+ writer.WriteField("model","gpt-image-1")
+ writer.WriteField("size","1024x1024")
+ writer.WriteField("prompt",faceTexturePrompt+" IMPORTANT: This is a flat game face texture, NOT a finished portrait. Remove all hair and ears, no smile or teeth, remove oval vignette and visible cutout edges, keep the real eyes, brows, nose, lips and skin pores. Fill entire canvas with continuous matching skin. No decorative background.")
+ part,err:=writer.CreateFormFile("image",filepath.Base(photo));if err!=nil{return err}
+ if _,err=io.Copy(part,f);err!=nil{return err}
+ if err=writer.Close();err!=nil{return err}
+ ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute);defer cancel()
+ req,err:=http.NewRequestWithContext(ctx,"POST","https://api.openai.com/v1/images/edits",&body);if err!=nil{return err}
+ req.Header.Set("Authorization","Bearer "+key);req.Header.Set("Content-Type",writer.FormDataContentType())
+ resp,err:=http.DefaultClient.Do(req);if err!=nil{return err};defer resp.Body.Close()
+ data,err:=io.ReadAll(io.LimitReader(resp.Body,24<<20));if err!=nil{return err}
+ if resp.StatusCode!=200{return fmt.Errorf("face image API %s: %s",resp.Status,strings.TrimSpace(string(data[:minInt(len(data),500)])))}
+ var result struct{Data []struct{B64JSON string `json:"b64_json"`}`json:"data"`}
+ if err=json.Unmarshal(data,&result);err!=nil{return err}
+ if len(result.Data)==0||result.Data[0].B64JSON==""{return fmt.Errorf("image API returned no face texture")}
+ raw,err:=base64.StdEncoding.DecodeString(result.Data[0].B64JSON);if err!=nil{return err}
+ src,_,err:=image.Decode(bytes.NewReader(raw));if err!=nil{return err}
+ bounds:=src.Bounds();dst:=image.NewRGBA(image.Rect(0,0,820,820))
+ for y:=0;y<820;y++{for x:=0;x<820;x++{
+  sx:=bounds.Min.X+x*bounds.Dx()/820;sy:=bounds.Min.Y+y*bounds.Dy()/820
+  dst.Set(x,y,src.At(sx,sy))
+ }}
+ output,err:=os.Create(out);if err!=nil{return err};defer output.Close()
+ return png.Encode(output,dst)
+}
 func startTexture(){
- // Avoid synchronous file logging on the UI thread.
  if imagePath==""{alert("Import a reference photograph first.");return}
  if textureBusy{return}
+ if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{set(203,"Real face texture generation requires OPENAI_API_KEY. The old finished-portrait crop is disabled.");return}
  textureBusy=true
- set(203,"Generating 820 x 820 texture in background...")
+ set(203,"AI editing reference into a hairless, neutral 820 x 820 face texture...")
  photo:=imagePath
  go func(){
-  home,_:=os.UserHomeDir()
-  if home==""{home=os.TempDir()}
-  filename:=strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png"
-  // Documents may be redirected to OneDrive or unavailable on some machines.
-  // Try user-controlled folders before treating a valid texture as a failed export.
-  dirs:=[]string{filepath.Join(home,"Documents","CAWForge","FaceTextures"),filepath.Join(home,"Pictures","CAWForge","FaceTextures"),filepath.Join(home,"CAWForge","FaceTextures")}
-  var path string
-  var err error
-  traceTexture("Standard texture generation started: "+photo)
-  for _,dir:=range dirs{
-   if e:=os.MkdirAll(dir,0755);e!=nil{err=e;traceTexture("Output folder unavailable: "+dir+": "+e.Error());continue}
-   candidate:=filepath.Join(dir,filename)
-   if e:=generateTexture(photo,candidate);e!=nil{
-    err=e;traceTexture("Texture output failed: "+candidate+": "+e.Error())
-    // Input decoding/geometry errors cannot be fixed by changing folders.
-    if _,statErr:=os.Stat(candidate);statErr==nil{_ = os.Remove(candidate)}
-    continue
-   }
-   path=candidate;err=nil;break
-  }
-  if err!=nil{traceTexture("Texture error: "+err.Error())}else{traceTexture("Texture saved: "+path);_ = writeFacePrompt(path)}
+  home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
+  dir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
+  err:=os.MkdirAll(dir,0755)
+  out:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png")
+  if err==nil{err=generateEditedFaceTexture(photo,out)}
   matchMu.Lock()
-  if err!=nil{faceTextureStatus="Texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="Saved: "+path;faceTexturePreviewPath=path}
+  if err!=nil{faceTextureStatus="Face texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="AI face texture saved: "+out+" (inspect before importing)";faceTexturePreviewPath=out}
   matchMu.Unlock()
-  traceTexture("Posting texture completion event")
   postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
  }()
 }
