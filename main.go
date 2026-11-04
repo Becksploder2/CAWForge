@@ -538,7 +538,7 @@ func proceduralGraphic(kind,description string) (string,error) {
  stripes:=strings.Contains(desc,"stripe")||strings.Contains(desc,"pinstripe")
  checker:=strings.Contains(desc,"check")||strings.Contains(desc,"checker")
  star:=strings.Contains(desc,"star")
- if !plaid&&!stripes&&!checker&&!star {stripes=true}
+ // No recognized motif means a solid color, never surprise stripes.
  for y:=0;y<height;y++{for x:=0;x<width;x++{
   v:=primary
   if !transparent{
@@ -583,11 +583,11 @@ func startGraphic(){
  prompt:=strings.TrimSpace(txt(305))
  if prompt==""{alert("Describe the colors and pattern first.");return}
  graphicBusy=true
- set(306,"Generating local graphic...")
+ set(306,"Generating offline pattern (not AI artwork)...")
  go func(){
   path,err:=proceduralGraphic(kind,prompt)
   matchMu.Lock()
-  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved: "+path}
+  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Offline pattern saved: "+path+" | Seam panels are tileable placeholders, not game UV maps."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
@@ -1246,11 +1246,11 @@ func main(){
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
  ctl("STATIC","OFFLINE GRAPHIC GENERATOR",30,110,650,34,301,0);
  ctl("STATIC","Graphic type:",30,170,170,26,302,0);
- ctl("STATIC","Describe colors, stripes, plaid, checkerboard, or stars:",30,240,790,26,303,0);
+ ctl("STATIC","Offline patterns: solid, stripes, plaid, checkerboard or stars:",30,240,790,26,303,0);
  ctl("COMBOBOX","",200,165,350,260,304,CBS_DROPDOWNLIST);
  for _,kind:=range []string{"Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}{send.Call(ctrls[304],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(kind))))}
  send.Call(ctrls[304],CB_SETCURSEL,0,0)
- ctl("EDIT","Burnt orange and white plaid",30,275,650,35,305,WS_BORDER);
+ ctl("EDIT","Black and red checker",30,275,650,35,305,WS_BORDER);
  ctl("STATIC","Creates patterned PNG assets locally. This is PROCEDURAL generation, not generative AI; logos contain no AI-generated lettering or characters.",30,390,980,70,306,0);
  ctl("BUTTON","Generate Graphic PNG",30,330,280,42,307,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
