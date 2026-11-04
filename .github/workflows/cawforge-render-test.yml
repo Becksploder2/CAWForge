@@ -28,10 +28,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "rembg[cpu,cli]" pyinstaller
-          pyinstaller --noconfirm --clean --onedir --name rembg --collect-all rembg --collect-all onnxruntime render-segmenter/rembg_cli.py
+          pyinstaller --noconfirm --clean --onedir --name rembg --collect-all rembg --collect-all onnxruntime --copy-metadata rembg --copy-metadata pymatting --recursive-copy-metadata gradio_client render-segmenter/rembg_cli.py
           New-Item -ItemType Directory -Force rembg-models/isnet-general-use | Out-Null
           Invoke-WebRequest -Uri "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx" -OutFile "rembg-models/isnet-general-use/isnet-general-use.onnx"
           Move-Item dist/rembg rembg-runtime
+          & .\\rembg-runtime\\rembg.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Bundled rembg runtime failed startup smoke test" }
           if (!(Test-Path "rembg-runtime/rembg.exe")) { throw "Frozen rembg.exe missing" }
           if ((Get-Item "rembg-models/isnet-general-use/isnet-general-use.onnx").Length -lt 1000000) { throw "Model download incomplete" }
       - name: Upload Windows test executable
