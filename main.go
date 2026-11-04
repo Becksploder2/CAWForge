@@ -205,10 +205,10 @@ func scanIndex()(Index,string){
   }
  }}
  raw,_:=json.MarshalIndent(next,"","  ");_ = os.WriteFile(filepath.Join(templateLibraryDir,"calibration_index.json"),raw,0644)
- if len(next.Entries)==0{return next,"Library is empty. Add M1-M20 or F1-F20 reference screenshots; no calibration performed."};return next,fmt.Sprintf("Ready: %d/40 templates (%d loaded from cache, %d unreadable).",len(next.Entries),reused,skipped)
+ if len(next.Entries)==0{return next,"Template library empty at "+templateLibraryDir+". Add M1-M20 and F1-F21 screenshots, then Rebuild Index; no calibration performed."};return next,fmt.Sprintf("Ready: %d/41 templates (%d loaded from cache, %d unreadable).",len(next.Entries),reused,skipped)
 }
 func beginCalibration(){
- if calibrationRunning{return};calibrationRunning=true;set(41,"Indexing available M1-M20 and F1-F20 screenshots...")
+ if calibrationRunning{return};calibrationRunning=true;set(41,"Indexing available M1-M20 and F1-F21 screenshots...")
  go func(){next,msg:=scanIndex();calMu.Lock();index=next;calibrationMessage=msg;calMu.Unlock();postMessage.Call(hwnd,WM_CAL_DONE,0,0)}()
 }
 func matchPhoto(){
@@ -216,7 +216,7 @@ func matchPhoto(){
  if matchRunning{matchQueued=true;return}
  calMu.Lock();entries:=append([]Fingerprint(nil),index.Entries...);calMu.Unlock()
  count:=0;for _,e:=range entries{if strings.HasPrefix(e.ID,gender){count++}}
- if count==0{set(41,"No verified "+gender+" templates installed. Add reference images to assets/templates; matching unavailable.");return}
+ if count==0{set(41,"No indexed "+gender+" template images. Required: "+filepath.Join(templateLibraryDir,gender+"1.png")+" (through "+gender+"21). Import real WWE 2K26 template screenshots, then Rebuild Index. No placeholder morph estimates applied.");return}
  matchRunning=true;set(41,"Comparing photo to "+strconv.Itoa(count)+" installed references in background...")
  photo:=imagePath;selectedGender:=gender;started:=time.Now()
  go func(){
