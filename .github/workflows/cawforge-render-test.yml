@@ -19,9 +19,12 @@ jobs:
         shell: pwsh
         run: |
           go build -trimpath -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
+          go build -trimpath -o render-segmenter.exe ./render-segmenter/main.go
       - name: Upload Windows test executable
         uses: actions/upload-artifact@v4
         with:
           name: CAWForge-Windows-Render-Seam-Test
-          path: CAWForge_Studio_Windows.exe
+          path: |
+            CAWForge_Studio_Windows.exe
+            render-segmenter.exe
           if-no-files-found: error
