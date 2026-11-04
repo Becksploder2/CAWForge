@@ -2,7 +2,7 @@ name: CAWForge Windows Test Build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/attire-auto-seam-connect]
     paths:
       - 'main.go'
       - 'go.mod'
@@ -32,6 +32,18 @@ jobs:
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
           go build -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
+      - name: Verify Windows executable header
+        shell: pwsh
+        run: |
+          $exe = 'CAWForge_Studio_Windows.exe'
+          if (!(Test-Path $exe)) { throw 'Windows executable was not created.' }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+          if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Invalid Windows MZ executable header.' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length -or [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4) -ne "PE`0`0") { throw 'Invalid Windows PE signature.' }
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x8664) { throw ('Unexpected PE machine type: 0x{0:X4}' -f $machine) }
+          Write-Host ('Validated x64 Windows PE: {0} bytes' -f $bytes.Length)
       - name: Stage app and preserve template folders
         shell: pwsh
         run: |
