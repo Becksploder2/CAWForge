@@ -666,11 +666,11 @@ func generateAIAttire(description string)(string,error){
 func startGraphic(){
  if graphicBusy{return}
  kindIndex,_,_:=send.Call(ctrls[304],CB_GETCURSEL,0,0)
- kinds:=[]string{"Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}
- if int(kindIndex)>=len(kinds){alert("Select a graphic type.");return}
+ kinds:=[]string{"","Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}
+ if kindIndex==0||int(kindIndex)>=len(kinds){alert("Choose a graphic category first: attire, logo, entrance background, or fan sign.");return}
  kind:=kinds[kindIndex]
  prompt:=strings.TrimSpace(txt(305))
- if prompt==""{alert("Describe the colors and pattern first.");return}
+ if prompt==""{alert("Describe the selected graphic first.");return}
  graphicBusy=true
  if kind=="Attire pattern"{set(306,"Generating three AI attire concept panels (top, tights, waistband)...")}else{set(306,"Generating offline graphic...")}
  go func(){
@@ -1334,15 +1334,15 @@ func main(){
  ctl("EDIT","",30,430,370,48,214,WS_BORDER|ES_MULTILINE);
  ctl("STATIC","Local AI ready. Requires running ComfyUI and a compatible workflow.",30,585,980,42,215,0);
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
- ctl("STATIC","OFFLINE GRAPHIC GENERATOR",30,110,650,34,301,0);
- ctl("STATIC","Graphic type:",30,170,170,26,302,0);
- ctl("STATIC","Attire uses OpenAI API key; other graphics use offline patterns:",30,240,790,26,303,0);
- ctl("COMBOBOX","",200,165,350,260,304,CBS_DROPDOWNLIST);
- for _,kind:=range []string{"Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}{send.Call(ctrls[304],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(kind))))}
+ ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
+ ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
+ ctl("STATIC","2. Describe the selected graphic (colors, words, logos and layout):",30,240,900,26,303,0);
+ ctl("COMBOBOX","",315,165,440,260,304,CBS_DROPDOWNLIST);
+ for _,kind:=range []string{"-- Choose graphic category --","Attire design (top, tights, waistband)","Wrestler logo / emblem","Entrance video background","Fan sign / arena placard"}{send.Call(ctrls[304],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(kind))))}
  send.Call(ctrls[304],CB_SETCURSEL,0,0)
- ctl("EDIT","Black and red checker",30,275,650,35,305,WS_BORDER);
+ ctl("EDIT","",30,275,850,35,305,WS_BORDER);
  ctl("STATIC","Attire pattern: generates 3 AI concept panels using OPENAI_API_KEY (paid API). Other graphics remain procedural. Concepts are NOT WWE 2K26 UV maps.",30,390,980,70,306,0);
- ctl("BUTTON","Generate Graphic PNG",30,330,280,42,307,0);
+ ctl("BUTTON","Generate Selected Graphic",30,330,330,42,307,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
  ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","AI Promotional Render (not configured)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background + Export PNG",30,275,380,42,323,0);
