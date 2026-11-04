@@ -502,13 +502,55 @@ func removeRenderBackground(path string)(string,error){
  dest,e:=os.Create(out);if e!=nil{return "",e};e=png.Encode(dest,img);ce:=dest.Close();if e!=nil{return "",e};if ce!=nil{return "",ce}
  return out,nil
 }
+// A local segmentation helper can produce an alpha mask without regenerating
+// the wrestler. Expected command: render-segmenter.exe <input> <output.png>.
+// Its output alpha is applied to ORIGINAL screenshot RGB values.
+func segmentRenderBackground(path string)(string,error){
+ exe,err:=os.Executable();if err!=nil{return "",err}
+ helper:=filepath.Join(filepath.Dir(exe),"render-segmenter.exe")
+ if _,err:=os.Stat(helper);err!=nil{return "",fmt.Errorf("AI cutout requires render-segmenter.exe beside CAWForge; complex backgrounds cannot be removed by the color-only fallback")}
+ sourceFile,err:=os.Open(path);if err!=nil{return "",err}
+ source,_,err:=image.Decode(sourceFile);sourceFile.Close();if err!=nil{return "",err}
+ b:=source.Bounds();w,h:=b.Dx(),b.Dy()
+ if w<16||h<16||int64(w)*int64(h)>32000000{return "",fmt.Errorf("unsupported screenshot size")}
+ tmp,err:=os.CreateTemp("","cawforge-mask-*.png");if err!=nil{return "",err}
+ maskPath:=tmp.Name();tmp.Close();os.Remove(maskPath);defer os.Remove(maskPath)
+ ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute);defer cancel()
+ cmd:=exec.CommandContext(ctx,helper,path,maskPath)
+ logs,err:=cmd.CombinedOutput()
+ if err!=nil{return "",fmt.Errorf("segmentation failed: %v: %s",err,string(logs))}
+ f,err:=os.Open(maskPath);if err!=nil{return "",fmt.Errorf("segmenter did not write mask: %w",err)}
+ mask,_,err:=image.Decode(f);f.Close();if err!=nil{return "",err}
+ if mask.Bounds().Dx()!=w||mask.Bounds().Dy()!=h{return "",fmt.Errorf("segmentation mask dimensions do not match source screenshot")}
+ result:=image.NewNRGBA(image.Rect(0,0,w,h))
+ draw.Draw(result,result.Bounds(),source,b.Min,draw.Src)
+ kept:=0
+ for y:=0;y<h;y++{for x:=0;x<w;x++{
+  _,_,_,alpha:=mask.At(mask.Bounds().Min.X+x,mask.Bounds().Min.Y+y).RGBA()
+  a:=uint8(alpha>>8)
+  result.Pix[y*result.Stride+x*4+3]=a
+  if a>127{kept++}
+ }}
+ if kept<w*h/100||kept>w*h*85/100{return "",fmt.Errorf("segmentation mask failed sanity check; original image remains untouched")}
+ name:=strings.TrimSuffix(filepath.Base(path),filepath.Ext(path))
+ out:=filepath.Join(filepath.Dir(path),name+"_caw_transparent.png")
+ f,err=os.Create(out);if err!=nil{return "",err}
+ err=png.Encode(f,result);closeErr:=f.Close();if err!=nil{return "",err};if closeErr!=nil{return "",closeErr}
+ return out,nil
+}
 func startRenderCutout(){
  if renderImagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
- if renderBusy{return};renderBusy=true;set(322,"Removing background (original CAW pixels preserved)...")
+ if renderBusy{return}
+ mode,_,_:=send.Call(ctrls[325],CB_GETCURSEL,0,0)
+ if mode==1{set(322,"AI Promotional Render requires an image-generation backend; not available in this build. No image was changed.");return}
+ renderBusy=true
+ set(322,"Processing original CAW cutout; source pixels will be preserved...")
  path:=renderImagePath
  go func(){
-  output,err:=removeRenderBackground(path)
-  matchMu.Lock();if err!=nil{renderStatus="Cutout failed: "+err.Error()}else{renderStatus="Transparent PNG: "+output+" (plain backgrounds only; verify edges)"};matchMu.Unlock()
+  output,err:=segmentRenderBackground(path)
+  matchMu.Lock()
+  if err!=nil{renderStatus="AI cutout unavailable: "+err.Error()}else{renderStatus="Original-pixel transparent PNG: "+output+" (inspect hair and clothing edges)"}
+  matchMu.Unlock()
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
 }
@@ -620,7 +662,7 @@ func switchTab(n int){
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
  for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
- for _,id:=range []int{321,322,323,324}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
+ for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
 }
 
 var values=map[string]int{}
@@ -1253,8 +1295,8 @@ func main(){
  ctl("BUTTON","Generate Graphic PNG",30,330,280,42,307,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
- ctl("BUTTON","Remove Background + Export PNG",30,245,380,42,323,0);
- ctl("STATIC","Import a screenshot first. Plain CAS backgrounds supported; busy arena scenes require AI segmentation. Original character RGB is never regenerated.",30,315,1000,100,322,0);
+ ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","AI Promotional Render (not configured)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background + Export PNG",30,275,380,42,323,0);
+ ctl("STATIC","Import a screenshot first. Complex screenshots require render-segmenter.exe (local AI helper) beside the app. The cutout preserves original RGB pixels. Promotional AI is not configured.",30,315,1000,100,322,0);
  ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
  ctl("BUTTON","Auto Seam Connect: true",30,515,235,34,308,0);
  ctl("BUTTON","Top sides: true",275,515,195,34,309,0);
