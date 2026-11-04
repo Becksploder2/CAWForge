@@ -673,6 +673,19 @@ func startGraphic(){
  kind:=kinds[kindIndex]
  prompt:=strings.TrimSpace(txt(305))
  if prompt==""{alert("Describe the selected graphic first.");return}
+ if kind=="Attire pattern"{
+  exe,_:=os.Executable()
+  uvDir:=filepath.Join(filepath.Dir(exe),"assets","attire-uv")
+  required:=[]string{"top.png","tights.png","waistband.png"}
+  var missing []string
+  for _,name:=range required{if _,err:=os.Stat(filepath.Join(uvDir,name));err!=nil{missing=append(missing,name)}}
+  if len(missing)>0{
+   set(306,"Full WWE 2K26 UV maps required. Missing "+strings.Join(missing,", ")+" in "+uvDir+". Stripe/pattern fallback disabled; no fake UV texture generated.")
+   return
+  }
+  set(306,"UV references detected, but UV-island mapping and garment projection are not implemented yet. No misleading texture exported.")
+  return
+ }
  graphicBusy=true
  if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{set(306,"Generating three cloud AI attire concept panels...")}else if kind=="Attire pattern"{set(306,"No OpenAI key: generating basic offline attire pattern and seam panels (not AI or game UV).")}else{set(306,"Generating offline graphic...")}
  go func(){
