@@ -20,6 +20,20 @@ jobs:
         run: |
           go build -trimpath -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
           go build -trimpath -o render-segmenter.exe ./render-segmenter/main.go
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Bundle offline rembg runtime and IS-Net weights
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "rembg[cpu,cli]" pyinstaller
+          pyinstaller --noconfirm --clean --onedir --name rembg --collect-all rembg --collect-all onnxruntime render-segmenter/rembg_cli.py
+          New-Item -ItemType Directory -Force rembg-models/isnet-general-use | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx" -OutFile "rembg-models/isnet-general-use/isnet-general-use.onnx"
+          Move-Item dist/rembg rembg-runtime
+          if (!(Test-Path "rembg-runtime/rembg.exe")) { throw "Frozen rembg.exe missing" }
+          if ((Get-Item "rembg-models/isnet-general-use/isnet-general-use.onnx").Length -lt 1000000) { throw "Model download incomplete" }
       - name: Upload Windows test executable
         uses: actions/upload-artifact@v4
         with:
@@ -27,4 +41,6 @@ jobs:
           path: |
             CAWForge_Studio_Windows.exe
             render-segmenter.exe
+            rembg-runtime/**
+            rembg-models/**
           if-no-files-found: error
