@@ -541,9 +541,7 @@ func proceduralGraphic(kind,description string) (string,error) {
  // No recognized motif means a solid color, never surprise stripes.
  for y:=0;y<height;y++{for x:=0;x<width;x++{
   v:=primary
-  if !transparent{
-   if (x+y)/90%2==0{v=secondary}
-  }
+  // Solid base unless a requested pattern overrides it.
   if plaid{
    if x%160<27||y%160<27{v=secondary}
    if x%160<7||y%160<7{v=primary}
