@@ -256,8 +256,7 @@ func generateTexture(photoPath,outPath string)error{
  im,_,err:=image.Decode(f);if err!=nil{return err}
  b:=im.Bounds();w,h:=b.Dx(),b.Dy()
  if w<100||h<100{return fmt.Errorf("photo too small")}
- // Face-only elliptical matte: discard the original photograph background.
- // This is a centered-photo fallback, not a landmark/segmentation model.
+ // Centered rectangular crop, not AI face segmentation or expression editing.
  cropW:=int(float64(w)*0.62);cropH:=int(float64(h)*0.78)
  if cropW>cropH*3/4{cropW=cropH*3/4}
  if cropW<1{cropW=1};if cropH>h{cropH=h}
@@ -502,7 +501,7 @@ func removeRenderBackground(path string)(string,error){
  return out,nil
 }
 func startRenderCutout(){
- if imagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
+ if renderImagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
  if renderBusy{return};renderBusy=true;set(322,"Removing background (original CAW pixels preserved)...")
  path:=imagePath
  go func(){
@@ -511,6 +510,7 @@ func startRenderCutout(){
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
 }
+var renderImagePath string
 var renderBusy bool
 var renderStatus string
 const WM_RENDER_DONE=0x8029
@@ -961,6 +961,7 @@ case WM_PHOTO_VALIDATED:
  photoImportMu.Lock();path,err:=photoImportPath,photoImportError;photoImportMu.Unlock()
  if err!=""{set(25,"Photo import failed: "+err);if currentTab==1{set(203,"Photo import failed: "+err)};importTrace("photo validated UI handler exited with error");return 0}
  imagePath=path
+ if currentTab==3{renderImagePath=path;set(322,"CAW screenshot ready: "+filepath.Base(path)+". Click Remove Background + Export PNG.");return 0}
  set(25,"Photo loaded: "+filepath.Base(path))
  importTrace("photo loaded status set")
  if currentTab==1 {
@@ -1211,7 +1212,7 @@ func main(){
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
  ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.32",20,15,565,28,0,0);
- ctl("BUTTON","Morph Settings",610,12,145,32,200,0);ctl("BUTTON","Face Texture",765,12,140,32,202,0);ctl("BUTTON","Graphic Generator",915,12,180,32,300,0);ctl("BUTTON","Render Creator",915,48,180,30,320,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
+ ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%6)*172,255+(i/6)*38,165,31,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
