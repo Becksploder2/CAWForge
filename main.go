@@ -439,7 +439,9 @@ func generateEditedFaceTexture(photo,out string)error{
 func startTexture(){
  if imagePath==""{alert("Import a reference photograph first.");return}
  if textureBusy{return}
- if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{set(203,"Real face texture generation requires OPENAI_API_KEY. The old finished-portrait crop is disabled.");return}
+ mode,_,_:=send.Call(ctrls[219],CB_GETCURSEL,0,0)
+ if mode==0{runAITexture();return}
+ if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{set(203,"OpenAI mode needs OPENAI_API_KEY. Select Local AI to use the installed local engine.");return}
  textureBusy=true
  set(203,"AI editing reference into a hairless, neutral 820 x 820 face texture...")
  photo:=imagePath
@@ -710,7 +712,7 @@ func switchTab(n int){
  }
  for i:=0;i<12;i++{if v:=ctrls[50+i];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
- for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
+ for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
  for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
 }
@@ -1319,7 +1321,10 @@ func main(){
  ctl("EDIT","",665,625,410,51,30,WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|ES_READONLY);drawGroup();
  ctl("BUTTON","Import Face Photo",30,305,340,40,217,0);
  ctl("BUTTON","Generate 820 x 820 Face Texture",30,365,340,40,201,0);
- ctl("STATIC","Centered front-facing photo recommended. Standard crop cannot remove hair or neutralize smiles. For those, use Generate with Local AI. Not a verified game UV layout.",30,645,980,45,203,0);
+ ctl("STATIC","Texture AI engine:",30,415,160,28,218,0);
+ ctl("COMBOBOX","",195,412,380,120,219,CBS_DROPDOWNLIST);
+ for _,mode:=range []string{"Local AI (default; requires installed engine)","OpenAI API (optional; paid)"}{send.Call(ctrls[219],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[219],CB_SETCURSEL,0,0);
+ ctl("STATIC","Import a front-facing photo. Local AI is the default; install local-engine.exe and a compatible workflow first. Cloud API is optional. No portrait-crop fallback.",30,645,980,45,203,0);
  ctl("STATIC","FACE TEXTURE PREVIEW (320 x 320)",425,110,500,28,204,0);
  ctl("STATIC","",425,150,320,320,205,SS_BITMAP|WS_BORDER);
  ctl("STATIC","Local AI uses the embedded WWE 2K26 master prompt, current template and ComfyUI. Output 820x820. A compatible image-editing workflow is required.",30,495,990,35,206,0);
@@ -1334,7 +1339,7 @@ func main(){
  for _,v:=range []string{"Skin-tone background","Transparent background","Seamless skin fill"}{send.Call(ctrls[213],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(v))))}
  send.Call(ctrls[213],CB_SETCURSEL,0,0)
  ctl("EDIT","",30,430,370,48,214,WS_BORDER|ES_MULTILINE);
- ctl("STATIC","Local AI ready. Requires running ComfyUI and a compatible workflow.",30,585,980,42,215,0);
+ ctl("STATIC","Local AI requires local-engine.exe and a compatible workflow; not bundled in this build.",30,585,980,42,215,0);
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
  ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
  ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
