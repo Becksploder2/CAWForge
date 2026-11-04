@@ -1067,12 +1067,12 @@ case WM_PHOTO_VALIDATED:
   return 0
  }
  if currentTab==0 {
-  // Import must only register the validated photo. Large image decoding,
-  // automatic template matching and previews previously launched together
-  // immediately after import, causing severe memory/CPU contention.
-  // Keep explicit Match Photo and template-preview controls available.
-  set(41,"Reference photo ready. Select Match Photo to analyze it; import does not automatically start image processing.")
-  importTrace("morph settings photo import handler completed")
+  // Auto-match after validation on a background worker. Matching completion
+  // applies the suggested morph values and redraws visible slider controls.
+  // Do not start preview rendering simultaneously with photo decoding.
+  set(41,"Photo imported. Auto-matching template and estimating face sliders...")
+  matchPhoto()
+  importTrace("morph photo auto-match requested")
  }
  return 0
 case WM_PREVIEW_READY:applyMorphPreview();return 0
