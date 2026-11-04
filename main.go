@@ -494,6 +494,8 @@ func removeRenderBackground(path string)(string,error){
    if near(get(j))&&dist(get(j),get(i))<28*28{mask[j]=true;queue=append(queue,j)}
   }
  }
+ if len(queue)<w*h/100{return "",fmt.Errorf("background not confidently detected; use a plain contrasting CAS backdrop")}
+ if len(queue)>w*h*85/100{return "",fmt.Errorf("background selection covers most of screenshot; refusing destructive cutout")}
  for i,removed:=range mask{if removed{img.Pix[i*4+3]=0}}
  name:=strings.TrimSuffix(filepath.Base(path),filepath.Ext(path))
  out:=filepath.Join(filepath.Dir(path),name+"_caw_transparent.png")
@@ -503,7 +505,7 @@ func removeRenderBackground(path string)(string,error){
 func startRenderCutout(){
  if renderImagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
  if renderBusy{return};renderBusy=true;set(322,"Removing background (original CAW pixels preserved)...")
- path:=imagePath
+ path:=renderImagePath
  go func(){
   output,err:=removeRenderBackground(path)
   matchMu.Lock();if err!=nil{renderStatus="Cutout failed: "+err.Error()}else{renderStatus="Transparent PNG: "+output+" (plain backgrounds only; verify edges)"};matchMu.Unlock()
