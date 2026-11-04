@@ -562,7 +562,7 @@ func startRenderCutout(){
  mode,_,_:=send.Call(ctrls[325],CB_GETCURSEL,0,0)
  if mode==1{set(322,"AI Promotional Render requires an image-generation backend; not available in this build. No image was changed.");return}
  renderBusy=true
- set(322,"Processing original CAW cutout; source pixels will be preserved...")
+ set(322,"Processing CAW screenshot: "+filepath.Base(renderImagePath)+" (original-pixel cutout, no generated patterns)...")
  path:=renderImagePath
  go func(){
   output,err:=segmentRenderBackground(path)
@@ -767,9 +767,11 @@ func fileDialog(save bool)(string,error){
 
 var templatePickerMode bool
 var gridPickerMode string
+var pickerSourceTab int
 func beginPicker(save bool){
  if pickerBusy{return}
  pickerBusy=true
+ pickerSourceTab=currentTab
  // Keep the message loop free of synchronous diagnostics disk I/O.
  set(25,"Opening Windows photo picker...")
  if currentTab==1{set(203,"Opening photo picker...")}
@@ -1053,7 +1055,7 @@ case WM_PHOTO_VALIDATED:
  photoImportMu.Lock();path,err:=photoImportPath,photoImportError;photoImportMu.Unlock()
  if err!=""{set(25,"Photo import failed: "+err);if currentTab==1{set(203,"Photo import failed: "+err)};importTrace("photo validated UI handler exited with error");return 0}
  imagePath=path
- if currentTab==3{renderImagePath=path;set(322,"CAW screenshot ready: "+filepath.Base(path)+". Click Remove Background + Export PNG.");return 0}
+ if pickerSourceTab==3||currentTab==3{renderImagePath=path;set(322,"CAW screenshot selected: "+filepath.Base(path)+". Original cutout only removes the background; it never creates stripes.");return 0}
  set(25,"Photo loaded: "+filepath.Base(path))
  importTrace("photo loaded status set")
  if currentTab==1 {
@@ -1108,7 +1110,7 @@ case WM_PICKER_DONE:
    if err!=nil{exportStatus="Morph sheet export failed: "+err.Error()}else{exportStatus="Morph sheet exported: "+path}
    matchMu.Unlock()
    postMessage.Call(hwnd,WM_EXPORT_DONE,0,0)
-  }()}}else{importTrace("picker result accepted");acceptPhoto(path)}
+  }()}}else{importTrace("picker result accepted");if pickerSourceTab==3&&path!=""{renderImagePath="";set(322,"Validating CAW screenshot: "+filepath.Base(path))};acceptPhoto(path)}
  importTrace("picker completion UI handler exited")
  return 0
 case WM_DROPFILES:
