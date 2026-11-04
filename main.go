@@ -20,6 +20,7 @@ import (
 
  _ "image/gif"
  "encoding/json"
+ "encoding/base64"
  "math"
  "sort"
  "time"
@@ -614,6 +615,37 @@ func proceduralGraphic(kind,description string) (string,error) {
  if kind=="Attire pattern"&&seamAuto{if err:=exportSeamPanels(img,dir,strings.TrimSuffix(filepath.Base(out),".png"));err!=nil{return "",err}}
  return out,nil
 }
+// generateAIAttire uses the OpenAI Images API. No credentials are stored in
+// the app; set OPENAI_API_KEY in the user's environment before launching.
+func generateAIAttire(description string)(string,error){
+ key:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+ if key==""{return "",fmt.Errorf("AI attire requires OPENAI_API_KEY. Offline patterns cannot generate outfits")}
+ home,err:=os.UserHomeDir();if err!=nil{return "",err}
+ dir:=filepath.Join(home,"Documents","CAWForge","AIAttire")
+ if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
+ stamp:=strconv.FormatInt(time.Now().UnixNano(),10)
+ for _,piece:=range []string{"top","tights","waistband"}{
+  prompt:=fmt.Sprintf("Create a high quality, FLAT 2D printable professional wrestling attire TEXTURE DESIGN for the %s. Design brief: %s. Output a single square artwork panel, orthographic graphic only, no human body, no wrestler, no mannequin, no mockup, no text labels, no background scenery. Coordinate colors and motifs across the complete attire. This is concept art, not a game UV template.",piece,description)
+  payload,_:=json.Marshal(map[string]interface{}{"model":"gpt-image-1","prompt":prompt,"size":"1024x1024","n":1})
+  ctx,cancel:=context.WithTimeout(context.Background(),3*time.Minute)
+  req,err:=http.NewRequestWithContext(ctx,"POST","https://api.openai.com/v1/images/generations",bytes.NewReader(payload))
+  if err!=nil{cancel();return "",err}
+  req.Header.Set("Authorization","Bearer "+key);req.Header.Set("Content-Type","application/json")
+  res,err:=http.DefaultClient.Do(req)
+  if err!=nil{cancel();return "",err}
+  data,readErr:=io.ReadAll(io.LimitReader(res.Body,24<<20));res.Body.Close();cancel()
+  if readErr!=nil{return "",readErr}
+  if res.StatusCode!=200{return "",fmt.Errorf("image API %s: %s",res.Status,strings.TrimSpace(string(data[:minInt(len(data),600)])))}
+  var response struct{Data []struct{B64JSON string `json:"b64_json"`}`json:"data"`}
+  if err=json.Unmarshal(data,&response);err!=nil{return "",err}
+  if len(response.Data)==0||response.Data[0].B64JSON==""{return "",fmt.Errorf("image API returned no PNG for %s",piece)}
+  pngData,err:=base64.StdEncoding.DecodeString(response.Data[0].B64JSON);if err!=nil{return "",err}
+  if _,err=png.Decode(bytes.NewReader(pngData));err!=nil{return "",fmt.Errorf("invalid PNG for %s: %w",piece,err)}
+  out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
+  if err=os.WriteFile(out,pngData,0600);err!=nil{return "",err}
+ }
+ return dir,nil
+}
 func startGraphic(){
  if graphicBusy{return}
  kindIndex,_,_:=send.Call(ctrls[304],CB_GETCURSEL,0,0)
@@ -623,11 +655,12 @@ func startGraphic(){
  prompt:=strings.TrimSpace(txt(305))
  if prompt==""{alert("Describe the colors and pattern first.");return}
  graphicBusy=true
- set(306,"Generating offline pattern (not AI artwork)...")
+ if kind=="Attire pattern"{set(306,"Generating three AI attire concept panels (top, tights, waistband)...")}else{set(306,"Generating offline graphic...")}
  go func(){
-  path,err:=proceduralGraphic(kind,prompt)
+  var path string;var err error
+   if kind=="Attire pattern"{path,err=generateAIAttire(prompt)}else{path,err=proceduralGraphic(kind,prompt)}
   matchMu.Lock()
-  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Offline pattern saved: "+path+" | Seam panels are tileable placeholders, not game UV maps."}
+  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | AI attire pieces are concept panels, not WWE 2K26 UV maps."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
@@ -1286,12 +1319,12 @@ func main(){
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
  ctl("STATIC","OFFLINE GRAPHIC GENERATOR",30,110,650,34,301,0);
  ctl("STATIC","Graphic type:",30,170,170,26,302,0);
- ctl("STATIC","Offline patterns: solid, stripes, plaid, checkerboard or stars:",30,240,790,26,303,0);
+ ctl("STATIC","Attire uses OpenAI API key; other graphics use offline patterns:",30,240,790,26,303,0);
  ctl("COMBOBOX","",200,165,350,260,304,CBS_DROPDOWNLIST);
  for _,kind:=range []string{"Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}{send.Call(ctrls[304],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(kind))))}
  send.Call(ctrls[304],CB_SETCURSEL,0,0)
  ctl("EDIT","Black and red checker",30,275,650,35,305,WS_BORDER);
- ctl("STATIC","Creates patterned PNG assets locally. This is PROCEDURAL generation, not generative AI; logos contain no AI-generated lettering or characters.",30,390,980,70,306,0);
+ ctl("STATIC","Attire pattern: generates 3 AI concept panels using OPENAI_API_KEY (paid API). Other graphics remain procedural. Concepts are NOT WWE 2K26 UV maps.",30,390,980,70,306,0);
  ctl("BUTTON","Generate Graphic PNG",30,330,280,42,307,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
