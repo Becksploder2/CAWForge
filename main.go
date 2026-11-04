@@ -674,12 +674,12 @@ func startGraphic(){
  prompt:=strings.TrimSpace(txt(305))
  if prompt==""{alert("Describe the selected graphic first.");return}
  graphicBusy=true
- if kind=="Attire pattern"{set(306,"Generating three AI attire concept panels (top, tights, waistband)...")}else{set(306,"Generating offline graphic...")}
+ if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{set(306,"Generating three cloud AI attire concept panels...")}else if kind=="Attire pattern"{set(306,"No OpenAI key: generating basic offline attire pattern and seam panels (not AI or game UV).")}else{set(306,"Generating offline graphic...")}
  go func(){
   var path string;var err error
-   if kind=="Attire pattern"{path,err=generateAIAttire(prompt)}else{path,err=proceduralGraphic(kind,prompt)}
+   if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{path,err=generateAIAttire(prompt)}else{path,err=proceduralGraphic(kind,prompt)}
   matchMu.Lock()
-  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | AI attire pieces are concept panels, not WWE 2K26 UV maps."}
+  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | Offline patterns are basic; cloud AI designs are concepts. Neither is a verified WWE 2K26 UV map."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
