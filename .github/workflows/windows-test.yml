@@ -31,6 +31,8 @@ jobs:
           $env:GOOS='windows'
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
+          # This repository is currently a standalone stdlib-only main.go without go.mod.
+          $env:GO111MODULE='off'
           go build -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
       - name: Verify Windows executable header
         shell: pwsh
