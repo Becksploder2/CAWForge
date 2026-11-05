@@ -568,8 +568,16 @@ func startRenderCutout(){
  path:=renderImagePath
  go func(){
   output,err:=segmentRenderBackground(path)
+  method:="local segmentation helper"
+  // The bundled helper may be absent in development builds. For a plain,
+  // contrasting CAS backdrop, offer a conservative pixel-preserving fallback.
+  // Never label this color flood-fill as AI segmentation.
+  if err!=nil && strings.Contains(err.Error(),"render-segmenter.exe beside CAWForge"){
+   method="plain-background color mask (not AI)"
+   output,err=removeRenderBackground(path)
+  }
   matchMu.Lock()
-  if err!=nil{renderStatus="AI cutout unavailable: "+err.Error()}else{renderStatus="Original-pixel transparent PNG: "+output+" (inspect hair and clothing edges)"}
+  if err!=nil{renderStatus="Cutout unavailable: "+err.Error()}else{renderStatus="Original-pixel transparent PNG ("+method+"): "+output+" (inspect hair and clothing edges)"}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
