@@ -384,8 +384,24 @@ func runAITexture(){
      detail:=string(output);if len(detail)>600{detail=detail[:600]}
      result="Local AI failed: "+err.Error()+" "+detail
     }else{
-     result="Saved 820 x 820: "+out
-     outputPath=out
+     // A worker exit code of zero is not proof that a valid face texture exists.
+     file,openErr:=os.Open(out)
+     if openErr!=nil{
+      result="Local AI returned success but did not create a face texture: "+openErr.Error()
+     }else{
+      config,format,decodeErr:=image.DecodeConfig(file)
+      closeErr:=file.Close()
+      if decodeErr!=nil{
+       result="Local AI produced an unreadable image: "+decodeErr.Error()
+      }else if closeErr!=nil{
+       result="Local AI output could not be closed: "+closeErr.Error()
+      }else if format!="png"||config.Width!=820||config.Height!=820{
+       result=fmt.Sprintf("Local AI output rejected: expected 820 x 820 PNG, got %d x %d %s.",config.Width,config.Height,format)
+      }else{
+       result="Saved verified 820 x 820 PNG: "+out+" (visual quality not yet verified)"
+       outputPath=out
+      }
+     }
     }
    }
   }
