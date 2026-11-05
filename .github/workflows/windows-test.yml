@@ -46,6 +46,24 @@ jobs:
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           if ($machine -ne 0x8664) { throw ('Unexpected PE machine type: 0x{0:X4}' -f $machine) }
           Write-Host ('Validated x64 Windows PE: {0} bytes' -f $bytes.Length)
+      - name: Smoke-test GUI startup on Windows
+        shell: pwsh
+        run: |
+          # The app is a GUI program: successful startup means it remains alive
+          # briefly, not that it exits with status zero.
+          $exe = (Resolve-Path 'CAWForge_Studio_Windows.exe').Path
+          $process = Start-Process -FilePath $exe -WorkingDirectory (Get-Location).Path -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+            if ($process.HasExited) {
+              throw ('CAWForge exited during startup (code {0}).' -f $process.ExitCode)
+            }
+            Write-Host ('GUI process remained running after startup: PID {0}' -f $process.Id)
+          }
+          finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Stage app and preserve template folders
         shell: pwsh
         run: |
