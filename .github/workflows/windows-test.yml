@@ -70,10 +70,31 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
           if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
-          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe')) {
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
           Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
+      - name: Report local AI runtime readiness
+        shell: pwsh
+        run: |
+          $dist = 'dist/CAWForge'
+          $engine = Join-Path $dist 'local-engine.exe'
+          $workflow = Join-Path $dist 'workflow_api.json'
+          $enginePresent = Test-Path $engine -PathType Leaf
+          $workflowPresent = Test-Path $workflow -PathType Leaf
+          $status = if ($enginePresent -and $workflowPresent) { 'FILES_PRESENT_UNTESTED' } else { 'UNAVAILABLE' }
+          $lines = @(
+            "Local AI status: $status"
+            "local-engine.exe present: $enginePresent"
+            "workflow_api.json present: $workflowPresent"
+            'FILES_PRESENT_UNTESTED does not imply a working AI model.'
+            'The local AI backend and model are not bundled by this workflow unless explicitly supplied.'
+          )
+          $lines | Set-Content -Path (Join-Path $dist 'LOCAL_AI_STATUS.txt') -Encoding UTF8
+          $lines | ForEach-Object { Write-Host $_ }
+          if (!$enginePresent -or !$workflowPresent) {
+            Write-Warning 'Local AI will not work in this artifact: engine and/or workflow missing.'
+          }
       - name: Upload test ZIP (not a public release)
         uses: actions/upload-artifact@v4
         with:
