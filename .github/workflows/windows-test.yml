@@ -93,7 +93,7 @@ jobs:
           $lines | Set-Content -Path (Join-Path $dist 'LOCAL_AI_STATUS.txt') -Encoding UTF8
           $lines | ForEach-Object { Write-Host $_ }
           if (!$enginePresent -or !$workflowPresent) {
-            Write-Warning 'Local AI will not work in this artifact: engine and/or workflow missing.'
+            throw 'Local AI packaging incomplete: provide a compatible local-engine.exe, workflow_api.json, and model assets before publishing a Windows artifact.'
           }
       - name: Upload test ZIP (not a public release)
         uses: actions/upload-artifact@v4
