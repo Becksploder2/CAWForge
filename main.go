@@ -363,9 +363,9 @@ func runAITexture(){
   var result,outputPath string
   engine:=filepath.Join(dir,"local-engine.exe")
   if _,err:=os.Stat(engine);err!=nil{
-   result="Local AI is unavailable: local-engine.exe is not installed. Standard face texture generation remains available."
+   result="Local AI is unavailable: local-engine.exe is missing from "+dir+". This build does not include a local inference backend. Rebuild with a compatible engine and model; OpenAI mode separately requires OPENAI_API_KEY."
   }else if _,err:=os.Stat(workflow);err!=nil{
-   result="Local AI workflow not found. Standard face texture generation remains available."
+   result="Local AI workflow is missing: "+workflow+". The engine and its compatible model/workflow must both be packaged; no local AI inference was performed."
   }else{
    home,_:=os.UserHomeDir()
    if home==""{home=os.TempDir()}
