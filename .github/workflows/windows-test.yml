@@ -93,7 +93,7 @@ jobs:
           $lines | Set-Content -Path (Join-Path $dist 'LOCAL_AI_STATUS.txt') -Encoding UTF8
           $lines | ForEach-Object { Write-Host $_ }
           if (!$enginePresent -or !$workflowPresent) {
-            throw 'Local AI packaging incomplete: provide a compatible local-engine.exe, workflow_api.json, and model assets before publishing a Windows artifact.'
+            Write-Warning 'Local AI unavailable in this test artifact: compatible engine and workflow are not bundled. Core CAWForge Windows GUI can still be tested.'
           }
       - name: Upload test ZIP (not a public release)
         uses: actions/upload-artifact@v4
