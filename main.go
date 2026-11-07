@@ -711,6 +711,43 @@ func generateAIAttire(description string)(string,error){
  }
  return dir,nil
 }
+// generatePlacementTestAtlas creates an explicitly provisional combined UV placement sheet.
+// The colored panel boxes are test coordinates, NOT verified WWE 2K26 UV islands.
+func generatePlacementTestAtlas(description string)(string,error){
+ const size=2048
+ img:=image.NewNRGBA(image.Rect(0,0,size,size))
+ panels:=[]struct{Name string;X,Y,W,H int;R,G,B uint8}{
+  {"top_front",80,80,900,620,210,55,70},
+  {"top_back",1068,80,900,620,65,125,210},
+  {"tights_front",80,790,900,930,50,175,125},
+  {"tights_back",1068,790,900,930,175,95,205},
+  {"waistband",80,1810,1888,140,225,170,55},
+ }
+ type region struct{Name string `json:"name"`; X int `json:"x"`;Y int `json:"y"`;W int `json:"width"`;H int `json:"height"`}
+ regions:=make([]region,0,len(panels))
+ for _,p:=range panels{
+  regions=append(regions,region{p.Name,p.X,p.Y,p.W,p.H})
+  for y:=p.Y;y<p.Y+p.H;y++{for x:=p.X;x<p.X+p.W;x++{
+   col:=color.NRGBA{p.R,p.G,p.B,255}
+   if (x-p.X)%100<5||(y-p.Y)%100<5{col=color.NRGBA{255,255,255,255}}
+   if x-p.X<9||p.X+p.W-x<=9||y-p.Y<9||p.Y+p.H-y<=9{col=color.NRGBA{255,255,255,255}}
+   if (x-p.X-p.W/2)*(x-p.X-p.W/2)+(y-p.Y-p.H/2)*(y-p.Y-p.H/2)<2500{col=color.NRGBA{0,0,0,255}}
+   img.SetNRGBA(x,y,col)
+  }}
+ }
+ home,err:=os.UserHomeDir();if err!=nil{return "",err}
+ dir:=filepath.Join(home,"Documents","CAWForge","AttirePlacementTests")
+ if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
+ stem:=strconv.FormatInt(time.Now().UnixNano(),10)
+ path:=filepath.Join(dir,"combined_uv_TEST_"+stem+".png")
+ f,err:=os.Create(path);if err!=nil{return "",err}
+ err=png.Encode(f,img);closeErr:=f.Close();if err!=nil{return "",err};if closeErr!=nil{return "",closeErr}
+ manifest:=map[string]interface{}{"status":"PROVISIONAL TEST - NOT WWE 2K26 UV CALIBRATED","width":size,"height":size,"description":description,"regions":regions}
+ data,err:=json.MarshalIndent(manifest,"","  ");if err!=nil{return "",err}
+ if err=os.WriteFile(filepath.Join(dir,"combined_uv_TEST_"+stem+".json"),data,0644);err!=nil{return "",err}
+ return path,nil
+}
+
 func startGraphic(){
  if graphicBusy{return}
  kindIndex,_,_:=send.Call(ctrls[304],CB_GETCURSEL,0,0)
@@ -720,16 +757,16 @@ func startGraphic(){
  prompt:=strings.TrimSpace(txt(305))
  if prompt==""{alert("Describe the selected graphic first.");return}
  if kind=="Attire pattern"{
-  exe,_:=os.Executable()
-  uvDir:=filepath.Join(filepath.Dir(exe),"assets","attire-uv")
-  required:=[]string{"top.png","tights.png","waistband.png"}
-  var missing []string
-  for _,name:=range required{if _,err:=os.Stat(filepath.Join(uvDir,name));err!=nil{missing=append(missing,name)}}
-  if len(missing)>0{
-   set(306,"Full WWE 2K26 UV maps required. Missing "+strings.Join(missing,", ")+" in "+uvDir+". Stripe/pattern fallback disabled; no fake UV texture generated.")
-   return
-  }
-  set(306,"UV references detected, but UV-island mapping and garment projection are not implemented yet. No misleading texture exported.")
+  // Provisional combined-atlas test only. Exact WWE 2K26 islands require calibration.
+  graphicBusy=true
+  set(306,"Generating provisional combined UV placement test sheet...")
+  go func(){
+   path,err:=generatePlacementTestAtlas(prompt)
+   matchMu.Lock()
+   if err!=nil{graphicStatus="Placement test failed: "+err.Error()}else{graphicStatus="TEST TEMPLATE (not WWE 2K26 calibrated): "+path+" | Check panel alignment in game."}
+   matchMu.Unlock()
+   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
+  }()
   return
  }
  graphicBusy=true
