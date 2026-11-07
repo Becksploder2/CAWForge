@@ -763,6 +763,78 @@ func launchLivePreview(){
  if err=os.WriteFile(output,[]byte(content),0600);err!=nil{alert(err.Error());return}
  exec.Command("rundll32.exe","url.dll,FileProtocolHandler",output).Start()
 }
+
+// Body Texture Studio: recolor an existing approved WWE 2K26 UV atlas without
+// changing island geometry. This is an offline skin-tone matching operation,
+// not an AI reconstruction of anatomy or a DDS encoder.
+func generateBodyTextureAtlas(atlasPath,facePath string)(string,error){
+ af,e:=os.Open(atlasPath);if e!=nil{return "",e};defer af.Close()
+ atlas,_,e:=image.Decode(af);if e!=nil{return "",fmt.Errorf("decode UV atlas: %w",e)}
+ b:=atlas.Bounds();w,h:=b.Dx(),b.Dy()
+ if w<256||h<256||int64(w)*int64(h)>32000000{return "",fmt.Errorf("unsupported UV atlas size")}
+ ff,e:=os.Open(facePath);if e!=nil{return "",e};defer ff.Close()
+ face,_,e:=image.Decode(ff);if e!=nil{return "",fmt.Errorf("decode face texture: %w",e)}
+ fb:=face.Bounds();if fb.Dx()<32||fb.Dy()<32{return "",fmt.Errorf("face texture too small")}
+ // Sample a central cheek band; avoid dark eyes, lips and background.
+ var sr,sg,sb,count float64
+ for y:=fb.Min.Y+fb.Dy()*43/100;y<fb.Min.Y+fb.Dy()*60/100;y+=2{
+  for x:=fb.Min.X+fb.Dx()*25/100;x<fb.Min.X+fb.Dx()*75/100;x+=2{
+   rr,gg,bb,aa:=face.At(x,y).RGBA()
+   if aa<0xc000{continue}
+   r,g,bl:=float64(rr>>8),float64(gg>>8),float64(bb>>8)
+   if r<45||g<35||bl<25||r>248||g>245||bl>245{continue}
+   sr+=r;sg+=g;sb+=bl;count++
+  }
+ }
+ if count<25{return "",fmt.Errorf("no reliable cheek skin sample found in face texture")}
+ target:=[3]float64{sr/count,sg/count,sb/count}
+ var ar,ag,ab,n float64
+ // Only recolor non-black, skin-colored atlas islands.
+ isSkin:=func(r,g,bl float64)bool{return r>45&&g>30&&bl>20&&r>=g*0.88&&g>=bl*0.84&&r>bl*1.13}
+ for y:=0;y<h;y+=3{for x:=0;x<w;x+=3{
+  rr,gg,bb,aa:=atlas.At(b.Min.X+x,b.Min.Y+y).RGBA()
+  if aa<0x8000{continue}
+  r,g,bl:=float64(rr>>8),float64(gg>>8),float64(bb>>8)
+  if isSkin(r,g,bl){ar+=r;ag+=g;ab+=bl;n++}
+ }}
+ if n<100{return "",fmt.Errorf("UV atlas has insufficient recognizable skin pixels; no output created")}
+ original:=[3]float64{ar/n,ag/n,ab/n}
+ dst:=image.NewNRGBA(image.Rect(0,0,w,h))
+ clamp:=func(v float64)uint8{if v<0{return 0};if v>255{return 255};return uint8(math.Round(v))}
+ for y:=0;y<h;y++{for x:=0;x<w;x++{
+  rr,gg,bb,aa:=atlas.At(b.Min.X+x,b.Min.Y+y).RGBA()
+  r,g,bl:=float64(rr>>8),float64(gg>>8),float64(bb>>8)
+  pixel:=color.NRGBA{uint8(rr>>8),uint8(gg>>8),uint8(bb>>8),uint8(aa>>8)}
+  if aa>=0x8000&&isSkin(r,g,bl){
+   pixel.R=clamp(r+(target[0]-original[0])*0.85)
+   pixel.G=clamp(g+(target[1]-original[1])*0.85)
+   pixel.B=clamp(bl+(target[2]-original[2])*0.85)
+  }
+  dst.SetNRGBA(x,y,pixel)
+ }}
+ home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
+ dir:=filepath.Join(home,"Documents","CAWForge","BodyTextures")
+ if e=os.MkdirAll(dir,0755);e!=nil{return "",e}
+ out:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(atlasPath),filepath.Ext(atlasPath))+"_skinmatched.png")
+ f,e:=os.Create(out);if e!=nil{return "",e}
+ e=png.Encode(f,dst);closeErr:=f.Close();if e!=nil{return "",e};if closeErr!=nil{return "",closeErr}
+ return out,nil
+}
+func startBodyTexture(){
+ atlas:=strings.Trim(strings.TrimSpace(txt(352)),"\"")
+ face:=strings.Trim(strings.TrimSpace(txt(353)),"\"")
+ if atlas==""||face==""{set(354,"Enter the approved body UV atlas PNG and face texture PNG paths.");return}
+ set(354,"Matching body atlas skin tone in background...")
+ go func(){
+  out,e:=generateBodyTextureAtlas(atlas,face)
+  matchMu.Lock()
+  if e!=nil{bodyTextureStatus="Body texture failed: "+e.Error()}else{bodyTextureStatus="Skin-matched UV PNG: "+out+" (UV layout preserved; inspect before import; DDS conversion not included)"}
+  matchMu.Unlock()
+  postMessage.Call(hwnd,WM_BODY_TEXTURE_DONE,0,0)
+ }()
+}
+var bodyTextureStatus string
+const WM_BODY_TEXTURE_DONE=0x8012
 func switchTab(n int){
  currentTab=n
  // Native Windows tabs: show the controls belonging to the selected workspace.
@@ -775,6 +847,7 @@ func switchTab(n int){
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
  for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
  for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
+ for _,id:=range []int{351,352,353,354,355,356}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
 }
 
 var values=map[string]int{}
@@ -1203,6 +1276,7 @@ case WM_TIMER:
 case WM_MATCH_DONE:
  matchMu.Lock();message,best,estimated:=matchMessage,matchID,morphResult;matchMu.Unlock();matchRunning=false
  if best!="" && strings.HasPrefix(best,gender){n,_:=strconv.Atoi(best[1:]);template=n;send.Call(ctrls[3],CB_SETCURSEL,uintptr(n-1),0);set(23,best);for key,value:=range estimated{values[key]=value};drawGroup();updateMorphPreview()};set(41,message);if matchQueued{matchQueued=false;matchPhoto()};return 0
+case WM_BODY_TEXTURE_DONE:matchMu.Lock();status:=bodyTextureStatus;matchMu.Unlock();set(354,status);return 0
 case WM_RENDER_DONE:matchMu.Lock();status:=renderStatus;matchMu.Unlock();renderBusy=false;set(322,status);return 0
 case WM_GRAPHIC_DONE:
  matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);return 0
@@ -1252,7 +1326,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -1424,7 +1498,7 @@ func main(){
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
  ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.32",20,15,565,28,0,0);
- ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
+ ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%7)*155,245+(i/7)*35,149,30,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
@@ -1435,6 +1509,13 @@ func main(){
  ctl("STATIC","",865,398,185,150,502,SS_BITMAP|WS_BORDER);
  ctl("STATIC","Import a photo to compare it with the matched template.",665,550,410,34,504,0);
  ctl("EDIT","",665,625,410,51,30,WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|ES_READONLY);drawGroup();
+ ctl("STATIC","BODY TEXTURE STUDIO — Preserve approved WWE 2K26 UV atlas",30,105,950,30,351,0);
+ ctl("STATIC","Approved body UV atlas PNG path:",30,165,750,25,356,0);
+ ctl("EDIT","",30,197,1020,32,352,WS_BORDER);
+ ctl("STATIC","Face texture PNG path (skin-tone reference):",30,250,760,25,0,0);
+ ctl("EDIT","",30,285,1020,32,353,WS_BORDER);
+ ctl("BUTTON","Generate Skin-Matched Body UV PNG",30,350,450,42,355,0);
+ ctl("STATIC","Enter the two PNG paths above. This matches skin tone on an existing atlas; it does not create UV geometry or DDS files.",30,425,1020,85,354,0);
  ctl("BUTTON","Import Face Photo",30,305,340,40,217,0);
  ctl("BUTTON","Generate 820 x 820 Face Texture",30,365,340,40,201,0);
  ctl("STATIC","Texture AI engine:",30,415,160,28,218,0);
