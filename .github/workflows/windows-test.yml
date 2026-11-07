@@ -73,6 +73,7 @@ jobs:
           foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
+          if (Test-Path models) { Copy-Item models dist/CAWForge/models -Recurse }
           Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
       - name: Report local AI runtime readiness
         shell: pwsh
@@ -82,17 +83,19 @@ jobs:
           $workflow = Join-Path $dist 'workflow_api.json'
           $enginePresent = Test-Path $engine -PathType Leaf
           $workflowPresent = Test-Path $workflow -PathType Leaf
-          $status = if ($enginePresent -and $workflowPresent) { 'FILES_PRESENT_UNTESTED' } else { 'UNAVAILABLE' }
+          $modelPresent = Test-Path (Join-Path $dist 'models/face-model.safetensors') -PathType Leaf
+          $status = if ($enginePresent -and $workflowPresent -and $modelPresent) { 'FILES_PRESENT_UNTESTED' } else { 'UNAVAILABLE' }
           $lines = @(
             "Local AI status: $status"
             "local-engine.exe present: $enginePresent"
             "workflow_api.json present: $workflowPresent"
+            "models/face-model.safetensors present: $modelPresent"
             'FILES_PRESENT_UNTESTED does not imply a working AI model.'
             'The local AI backend and model are not bundled by this workflow unless explicitly supplied.'
           )
           $lines | Set-Content -Path (Join-Path $dist 'LOCAL_AI_STATUS.txt') -Encoding UTF8
           $lines | ForEach-Object { Write-Host $_ }
-          if (!$enginePresent -or !$workflowPresent) {
+          if (!$enginePresent -or !$workflowPresent -or !$modelPresent) {
             Write-Warning 'Local AI unavailable in this test artifact: compatible engine and workflow are not bundled. Core CAWForge Windows GUI can still be tested.'
           }
       - name: Upload test ZIP (not a public release)
