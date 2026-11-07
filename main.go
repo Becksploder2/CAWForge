@@ -786,8 +786,8 @@ func generatePlacementTestAtlas(description string)(string,error){
 func startImportedSeamTest(){
  source:=strings.Trim(strings.TrimSpace(txt(370)),"\"")
  if source==""{set(371,"Import an attire PNG first.");return}
- if !seamAuto{set(371,"Enable Auto Seam Connect before running a seam test.");return}
- set(371,"Validating imported attire texture...")
+ if !seamAuto{set(371,"Enable Auto Seam Connect before exporting a seam baseline.");return}
+ set(371,"Validating imported attire texture for baseline export...")
  go func(){
   f,err:=os.Open(source)
   if err!=nil{matchMu.Lock();graphicStatus="Import failed: "+err.Error();matchMu.Unlock();postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0);return}
@@ -1403,7 +1403,7 @@ case WM_MATCH_DONE:
 case WM_BODY_TEXTURE_DONE:matchMu.Lock();status:=bodyTextureStatus;path:=lastBodyPNG;matchMu.Unlock();_ = path;set(354,status);return 0
 case WM_RENDER_DONE:matchMu.Lock();status:=renderStatus;matchMu.Unlock();renderBusy=false;set(322,status);return 0
 case WM_GRAPHIC_DONE:
- matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);return 0
+ matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);set(371,status);return 0
 case WM_AI_DONE:
  matchMu.Lock();status,path:=aiResult,aiOutput;matchMu.Unlock();if path!=""{lastFacePNG=path};aiBusy=false;set(215,status);if path!=""{showTexturePreview(path)};return 0
 case WM_EXPORT_DONE:
@@ -1430,7 +1430,7 @@ case WM_PICKER_DONE:
   }
   return 0
  }
- if attireImportPicker{attireImportPicker=false;if err!=""{set(371,"Import failed: "+err)}else if path!=""{set(370,path);set(371,"Loaded "+filepath.Base(path)+"; run seam test to export a separate PNG.")};return 0}
+ if attireImportPicker{attireImportPicker=false;if err!=""{set(371,"Import failed: "+err)}else if path!=""{set(370,path);set(371,"Loaded "+filepath.Base(path)+"; run seam baseline to export a separate PNG.")};return 0}
  if bodyPickerTarget!=0{target:=bodyPickerTarget;bodyPickerTarget=0;if err!=""{set(354,"Image selection failed: "+err)}else if path!=""{set(target,path);set(354,"Selected "+filepath.Base(path))};return 0}
  if err!=""{templatePickerMode=false;set(25,"File picker error");alert("File picker failed: "+err)}else if w==2 {templatePickerMode=false;if path!=""{imagePath=path;assignTemplateImage()}else{set(25,"Template selection cancelled.")}}else if w==3 || w==4 {gridPickerMode="";if path!=""{prefix:="M";if w==4{prefix="F"};go func(){result:=importGrid(path,prefix);calMu.Lock();calibrationMessage=result;calMu.Unlock();postMessage.Call(hwnd,WM_CAL_DONE,0,0)}();set(41,"Cropping 20 grid thumbnails...")}}else if w==1 {if path!=""{content:=[]byte(sheet())
   set(25,"Exporting morph sheet...")
@@ -1695,7 +1695,7 @@ func main(){
  ctl("BUTTON","Generate Selected Graphic",30,330,330,42,307,0);
  ctl("BUTTON","Save Graphic As...",385,330,300,42,367,0);
  ctl("BUTTON","Import Existing Attire PNG",30,485,320,38,368,0);
- ctl("BUTTON","Auto-Connect Seam TEST",370,485,320,38,369,0);
+ ctl("BUTTON","Export Seam Baseline (UV mapping needed)",370,485,400,38,369,0);
  ctl("EDIT","",30,535,850,30,370,WS_BORDER);
  ctl("STATIC","Seam test needs calibrated WWE UV pairs; uncalibrated images are preserved unchanged.",30,580,1000,65,371,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
