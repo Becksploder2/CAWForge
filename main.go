@@ -1019,7 +1019,15 @@ func sheet()string{
  fmt.Fprintf(&b,"## %s\r\n\r\n### Face Template\r\n- Face Template: %s%d\r\n\r\n",txt(20),gender,template)
  for _,g:=range loadedMorphSheetSections(){
   fmt.Fprintf(&b,"### %s\r\n",g.name)
-  for _,item:=range g.items{fmt.Fprintf(&b,"- %s:\r\n",item)}
+  for _,item:=range g.items{
+   // Only display values that the existing morph engine actually tracks.
+   // Never turn an unsupported WWE 2K26 field into an invented estimate.
+   if value,ok:=values[g.name+" / "+item];ok{
+    fmt.Fprintf(&b,"- %s: %d\r\n",item,value)
+   }else{
+    fmt.Fprintf(&b,"- %s: [not calibrated]\r\n",item)
+   }
+  }
   b.WriteString("\r\n")
  }
  return b.String()
