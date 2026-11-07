@@ -490,7 +490,7 @@ func startTexture(){
   out:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png")
   if err==nil{err=generateEditedFaceTexture(photo,out)}
   matchMu.Lock()
-  if err!=nil{faceTextureStatus="Face texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="AI face texture saved: "+out+" (inspect before importing)";faceTexturePreviewPath=out}
+  if err!=nil{faceTextureStatus="Face texture failed: "+err.Error();faceTexturePreviewPath=""}else{lastFacePNG=out;faceTextureStatus="AI face texture saved: "+out+" (inspect before importing)";faceTexturePreviewPath=out}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
  }()
@@ -814,7 +814,7 @@ func startGraphic(){
   var path string;var err error
    if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{path,err=generateAIAttire(prompt)}else{path,err=proceduralGraphic(kind,prompt)}
   matchMu.Lock()
-  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | Logo export is 512x512 PNG. Offline graphics are basic patterns, not AI-designed custom logos."}
+  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{lastGraphicPNG=path;graphicStatus="Saved to: "+path+" | Logo export is 512x512 PNG. Offline graphics are basic patterns, not AI-designed custom logos."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
@@ -903,6 +903,14 @@ func generateBodyTextureAtlas(atlasPath,facePath string,definition int)(string,e
  e=png.Encode(f,dst);closeErr:=f.Close();if e!=nil{return "",e};if closeErr!=nil{return "",closeErr}
  return out,nil
 }
+func beginTextureSave(tab int){
+ var source string
+ switch tab{case 1:source=lastFacePNG;case 2:source=lastGraphicPNG;case 5:source=lastBodyPNG}
+ if source==""{alert("Generate a PNG first, then choose Save As.");return}
+ if pickerBusy{alert("A file dialog is already open.");return}
+ textureSaveSource=source;textureSaveTab=tab
+ beginPicker(true)
+}
 func startBodyTexture(){
  atlas:=strings.Trim(strings.TrimSpace(txt(352)),"\"")
  face:=strings.Trim(strings.TrimSpace(txt(353)),"\"")
@@ -913,13 +921,16 @@ func startBodyTexture(){
  go func(){
   out,e:=generateBodyTextureAtlas(atlas,face,definition)
   matchMu.Lock()
-  if e!=nil{bodyTextureStatus="Body texture failed: "+e.Error()}else{bodyTextureStatus="Skin-matched UV PNG: "+out+" (UV layout preserved; inspect before import; DDS conversion not included)"}
+  if e!=nil{bodyTextureStatus="Body texture failed: "+e.Error()}else{lastBodyPNG=out;bodyTextureStatus="Skin-matched UV PNG: "+out+" (UV layout preserved; inspect before import; DDS conversion not included)"}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_BODY_TEXTURE_DONE,0,0)
  }()
 }
 var bodyTextureStatus string
 var bodyPickerTarget int
+var lastFacePNG,lastBodyPNG,lastGraphicPNG string
+var textureSaveSource string
+var textureSaveTab int
 const WM_BODY_TEXTURE_DONE=0x8012
 func switchTab(n int){
  currentTab=n
@@ -929,11 +940,11 @@ func switchTab(n int){
  }
  for i:=0;i<len(groups);i++{if v:=ctrls[50+i];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
- for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
- for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
+ for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219,366}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
+ for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312,367}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
  for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
  for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
- for _,id:=range []int{351,352,353,354,355,356,357,358,359,360,361,362,363,364}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
+ for _,id:=range []int{351,352,353,354,355,356,357,358,359,360,361,362,363,364,365}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
 }
 
 var values=map[string]int{}
@@ -943,14 +954,15 @@ func ctl(class,title string,x,y,w,h,id int,style uint32)uintptr{v,_,_:=create.Ca
 func txt(id int)string{if ctrls[id]==0{return ""};buf:=make([]uint16,2048);gettext.Call(ctrls[id],uintptr(unsafe.Pointer(&buf[0])),uintptr(len(buf)));return syscall.UTF16ToString(buf)}
 func set(id int,s string){if ctrls[id]==0{return};settext.Call(ctrls[id],uintptr(unsafe.Pointer(ptr(s))))}
 func alert(s string){msgbox.Call(hwnd,uintptr(unsafe.Pointer(ptr(s))),uintptr(unsafe.Pointer(ptr("CAWForge Studio"))),0)}
-func fileDialog(save bool)(string,error){
+func fileDialog(save bool,pngSave bool)(string,error){
  // Use the native Windows common dialog directly, without spawning PowerShell.
  // Run on a dedicated locked OS thread and do not attach to the app's UI
  // window: that avoids cross-thread owner/window-message deadlocks.
  file:=make([]uint16,4096)
  var filter string
  var title string
- if save {
+ if save && pngSave {filter="PNG images (*.png)\x00*.png\x00\x00";title="Save Texture As PNG"
+ } else if save {
   filter="Text files (*.txt)\x00*.txt\x00All files (*.*)\x00*.*\x00\x00"
   title="Export WWE Morph Sheet"
  } else {
@@ -967,7 +979,7 @@ func fileDialog(save bool)(string,error){
  ofn:=OPENFILENAME{Size:uint32(unsafe.Sizeof(OPENFILENAME{})),Owner:0,
   Filter:&f[0],FilterIndex:1,File:&file[0],MaxFile:uint32(len(file)),
   Title:ptr(title),InitialDir:ptr(initialDir),Flags:0x00080000|0x00001000|0x00000800|0x02000000}
- if save {ofn.DefExt=ptr("txt");ofn.Flags|=0x00000002
+ if save {if pngSave{ofn.DefExt=ptr("png")}else{ofn.DefExt=ptr("txt")};ofn.Flags|=0x00000002
  } else {ofn.Flags|=0x00001000|0x00000004}
  var r uintptr
  if save {r,_,_=savefile.Call(uintptr(unsafe.Pointer(&ofn)))
@@ -1002,7 +1014,7 @@ func beginPicker(save bool){
   exe,err:=os.Executable()
   var path string
   if err==nil{
-   mode:="--pick-photo";if save{mode="--pick-save"}
+   mode:="--pick-photo";if save{mode="--pick-save";if textureSaveSource!=""{mode="--pick-png"}}
    pickerCtx,cancel:=context.WithTimeout(context.Background(),90*time.Second)
    defer cancel()
    cmd:=exec.CommandContext(pickerCtx,exe,mode)
@@ -1362,24 +1374,36 @@ case WM_TIMER:
 case WM_MATCH_DONE:
  matchMu.Lock();message,best,estimated:=matchMessage,matchID,morphResult;matchMu.Unlock();matchRunning=false
  if best!="" && strings.HasPrefix(best,gender){n,_:=strconv.Atoi(best[1:]);template=n;send.Call(ctrls[3],CB_SETCURSEL,uintptr(n-1),0);set(23,best);for key,value:=range estimated{values[key]=value};drawGroup();updateMorphPreview()};set(41,message);if matchQueued{matchQueued=false;matchPhoto()};return 0
-case WM_BODY_TEXTURE_DONE:matchMu.Lock();status:=bodyTextureStatus;matchMu.Unlock();set(354,status);return 0
+case WM_BODY_TEXTURE_DONE:matchMu.Lock();status:=bodyTextureStatus;path:=lastBodyPNG;matchMu.Unlock();_ = path;set(354,status);return 0
 case WM_RENDER_DONE:matchMu.Lock();status:=renderStatus;matchMu.Unlock();renderBusy=false;set(322,status);return 0
 case WM_GRAPHIC_DONE:
  matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);return 0
 case WM_AI_DONE:
- matchMu.Lock();status,path:=aiResult,aiOutput;matchMu.Unlock();aiBusy=false;set(215,status);if path!=""{showTexturePreview(path)};return 0
+ matchMu.Lock();status,path:=aiResult,aiOutput;matchMu.Unlock();if path!=""{lastFacePNG=path};aiBusy=false;set(215,status);if path!=""{showTexturePreview(path)};return 0
 case WM_EXPORT_DONE:
  matchMu.Lock();status:=exportStatus;matchMu.Unlock()
  morphExportBusy=false;set(25,status);return 0
 case WM_TEXTURE_PREVIEW_READY:applyTexturePreview();return 0
 case WM_TEXTURE_DONE:
- matchMu.Lock();status,path:=faceTextureStatus,faceTexturePreviewPath;matchMu.Unlock();textureBusy=false;set(203,status);if path!=""{showTexturePreview(path)};return 0
+ matchMu.Lock();status,path:=faceTextureStatus,faceTexturePreviewPath;matchMu.Unlock();if path!=""{lastFacePNG=path};textureBusy=false;set(203,status);if path!=""{showTexturePreview(path)};return 0
 case WM_CAL_DONE:
  calMu.Lock();message:=calibrationMessage;calMu.Unlock();calibrationRunning=false;set(41,message);if imagePath!=""{matchPhoto()};return 0
 case WM_PICKER_DONE:
  importTrace("picker completed; UI handler entered")
  pickerMu.Lock();path,err:=pickerResult,pickerErr;pickerMu.Unlock();pickerBusy=false
  if themePicker{themePicker=false;if err!=""{alert(err)}else if path!=""{themeCustomPath=path;themeIndex=6;send.Call(ctrls[401],CB_SETCURSEL,6,0);loadTheme()};return 0}
+ if textureSaveSource!=""{
+  source:=textureSaveSource;tab:=textureSaveTab;textureSaveSource=""
+  if err!=""{alert("Save As failed: "+err)}else if path!=""{
+   if !strings.EqualFold(filepath.Ext(path),".png"){path+=".png"}
+   data,e:=os.ReadFile(source)
+   if e==nil{e=os.WriteFile(path,data,0644)}
+   if e!=nil{alert("Could not save texture: "+e.Error())}else{
+    switch tab{case 1:set(203,"Saved as: "+path);case 2:set(306,"Saved as: "+path);case 5:set(354,"Saved as: "+path)}
+   }
+  }
+  return 0
+ }
  if bodyPickerTarget!=0{target:=bodyPickerTarget;bodyPickerTarget=0;if err!=""{set(354,"Image selection failed: "+err)}else if path!=""{set(target,path);set(354,"Selected "+filepath.Base(path))};return 0}
  if err!=""{templatePickerMode=false;set(25,"File picker error");alert("File picker failed: "+err)}else if w==2 {templatePickerMode=false;if path!=""{imagePath=path;assignTemplateImage()}else{set(25,"Template selection cancelled.")}}else if w==3 || w==4 {gridPickerMode="";if path!=""{prefix:="M";if w==4{prefix="F"};go func(){result:=importGrid(path,prefix);calMu.Lock();calibrationMessage=result;calMu.Unlock();postMessage.Call(hwnd,WM_CAL_DONE,0,0)}();set(41,"Cropping 20 grid thumbnails...")}}else if w==1 {if path!=""{content:=[]byte(sheet())
   set(25,"Exporting morph sheet...")
@@ -1413,7 +1437,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==365:beginTextureSave(5);case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -1565,7 +1589,7 @@ func main(){
  if len(os.Args)==5 && os.Args[1]=="--apply-update" {if err:=applyUpdate(os.Args[2],os.Args[3],os.Args[4]);err!=nil{os.WriteFile(filepath.Join(os.TempDir(),"CAWForge-update-error.txt"),[]byte(err.Error()),0644)};return}
  // Run the native Windows file picker in a separate process, so a hung
  // shell extension cannot block the main application's message loop.
- if len(os.Args)>1 && (os.Args[1]=="--pick-photo"||os.Args[1]=="--pick-save"){
+ if len(os.Args)>1 && (os.Args[1]=="--pick-photo"||os.Args[1]=="--pick-save"||os.Args[1]=="--pick-png"){
   runtime.LockOSThread()
   defer runtime.UnlockOSThread()
   ole:=syscall.NewLazyDLL("ole32.dll")
@@ -1573,7 +1597,7 @@ func main(){
   uninit:=ole.NewProc("CoUninitialize")
   hr,_,_:=init.Call(0,2) // COINIT_APARTMENTTHREADED
   if hr==0 || hr==1{defer uninit.Call()}
-  path,err:=fileDialog(os.Args[1]=="--pick-save")
+  path,err:=fileDialog(os.Args[1]!="--pick-photo",os.Args[1]=="--pick-png")
   if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(2)}
   fmt.Print(path)
   return
@@ -1607,9 +1631,11 @@ func main(){
  ctl("BUTTON","Athletic 50",660,342,160,32,363,0);
  ctl("BUTTON","Muscular 85",830,342,160,32,364,0);
  ctl("BUTTON","Generate Skin-Matched Body UV PNG",30,395,450,42,355,0);
+ ctl("BUTTON","Save Body As...",500,395,220,42,365,0);
  ctl("STATIC","Definition adjusts contrast in existing skin shading only; it cannot create new muscles or identify body parts. No DDS conversion.",30,460,1020,85,354,0);
  ctl("BUTTON","Import Face Photo",30,305,340,40,217,0);
  ctl("BUTTON","Generate 820 x 820 Face Texture",30,365,340,40,201,0);
+ ctl("BUTTON","Save Face As...",30,475,340,38,366,0);
  ctl("STATIC","Texture AI engine:",30,415,160,28,218,0);
  ctl("COMBOBOX","",195,412,380,120,219,CBS_DROPDOWNLIST);
  for _,mode:=range []string{"Local AI (default; requires installed engine)","OpenAI API (optional; paid)"}{send.Call(ctrls[219],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[219],CB_SETCURSEL,0,0);
@@ -1639,6 +1665,7 @@ func main(){
  ctl("EDIT","",30,275,850,35,305,WS_BORDER);
  ctl("STATIC","Attire pattern: generates 3 AI concept panels using OPENAI_API_KEY (paid API). Other graphics remain procedural. Concepts are NOT WWE 2K26 UV maps.",30,390,980,70,306,0);
  ctl("BUTTON","Generate Selected Graphic",30,330,330,42,307,0);
+ ctl("BUTTON","Save Graphic As...",385,330,300,42,367,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
  ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","AI Promotional Render (not configured)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background + Export PNG",30,275,380,42,323,0);
