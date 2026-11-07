@@ -624,6 +624,35 @@ var renderImagePath string
 var renderBusy bool
 var renderStatus string
 const WM_RENDER_DONE=0x8029
+// exportSignSheet converts a supplied 3x4 reference sheet into a reusable 12-sign atlas.
+// Use prompt: sheet:C:\\path\\to\\sheet.png . No artwork is synthesized or altered.
+func exportSignSheet(description string)(string,error){
+ source:=strings.TrimSpace(description)
+ if strings.HasPrefix(strings.ToLower(source),"sheet:"){source=strings.TrimSpace(source[6:])}
+ source=strings.Trim(source,"\"")
+ f,err:=os.Open(source);if err!=nil{return "",fmt.Errorf("enter sheet:<full path to a 3x4 PNG or JPG>: %w",err)}
+ defer f.Close()
+ src,_,err:=image.Decode(f);if err!=nil{return "",err}
+ bounds:=src.Bounds();w,h:=bounds.Dx(),bounds.Dy()
+ if w<300||h<400{return "",fmt.Errorf("sign sheet is too small (%dx%d)",w,h)}
+ out:=image.NewNRGBA(image.Rect(0,0,1536,1024))
+ // Nearest-neighbor preserves source pixels at the reference dimensions;
+ // tiles are split at exact thirds/quarters of the supplied sheet.
+ for y:=0;y<1024;y++{sy:=bounds.Min.Y+y*h/1024;for x:=0;x<1536;x++{sx:=bounds.Min.X+x*w/1536;out.Set(x,y,src.At(sx,sy))}}
+ home,err:=os.UserHomeDir();if err!=nil{return "",err}
+ dir:=filepath.Join(home,"Documents","CAWForge","SignSheets")
+ if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
+ stem:=strconv.FormatInt(time.Now().UnixNano(),10)
+ output:=filepath.Join(dir,"sign_sheet_12_"+stem+".png")
+ save:=func(path string,img image.Image)error{f,e:=os.Create(path);if e!=nil{return e};e=png.Encode(f,img);ce:=f.Close();if e!=nil{return e};return ce}
+ if err=save(output,out);err!=nil{return "",err}
+ for row:=0;row<4;row++{for col:=0;col<3;col++{
+  tile:=image.NewNRGBA(image.Rect(0,0,512,256))
+  draw.Draw(tile,tile.Bounds(),out,image.Point{X:col*512,Y:row*256},draw.Src)
+  if err=save(filepath.Join(dir,fmt.Sprintf("sign_%02d_%s.png",row*3+col+1,stem)),tile);err!=nil{return "",err}
+ }}
+ return output,nil
+}
 func proceduralGraphic(kind,description string) (string,error) {
  desc:=strings.ToLower(description)
  width,height:=1024,1024
@@ -756,6 +785,11 @@ func startGraphic(){
  kind:=kinds[kindIndex]
  prompt:=strings.TrimSpace(txt(305))
  if prompt==""{alert("Describe the selected graphic first.");return}
+ if kind=="Wrestling sign"{
+  graphicBusy=true;set(306,"Exporting 3x4 sign sheet and 12 individual signs...")
+  go func(){path,err:=exportSignSheet(prompt);matchMu.Lock();if err!=nil{graphicStatus="Sign export failed: "+err.Error()}else{graphicStatus="Exported 12-sign atlas and individual signs: "+path};matchMu.Unlock();postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)}()
+  return
+ }
  if kind=="Attire pattern"{
   // Provisional combined-atlas test only. Exact WWE 2K26 islands require calibration.
   graphicBusy=true
