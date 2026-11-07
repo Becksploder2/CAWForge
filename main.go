@@ -793,13 +793,16 @@ func startGraphic(){
   return
  }
  if kind=="Attire pattern"{
-  // Provisional combined-atlas test only. Exact WWE 2K26 islands require calibration.
+  if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{
+   set(306,"Attire artwork requires an image generation engine (OPENAI_API_KEY not set). The old colored UV grid was only a placement diagnostic. No fake texture exported.")
+   return
+  }
   graphicBusy=true
-  set(306,"Generating provisional combined UV placement test sheet...")
+  set(306,"Generating top, tights and waistband artwork concepts (not yet WWE 2K26 UV-mapped)...")
   go func(){
-   path,err:=generatePlacementTestAtlas(prompt)
+   path,err:=generateAIAttire(prompt)
    matchMu.Lock()
-   if err!=nil{graphicStatus="Placement test failed: "+err.Error()}else{graphicStatus="TEST TEMPLATE (not WWE 2K26 calibrated): "+path+" | Check panel alignment in game."}
+   if err!=nil{graphicStatus="Attire artwork generation failed: "+err.Error()}else{graphicStatus="Three attire ARTWORK CONCEPTS saved in: "+path+" | Not yet game-ready UV textures; exact UV mapping requires a real atlas."}
    matchMu.Unlock()
    postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
   }()
