@@ -32,3 +32,14 @@ Use the existing numbered grids; request only **close-up LEFT and RIGHT side vie
 
 ## Provenance
 User-provided WWE 2K26 screenshots in ChatGPT conversation, November 2026. No coordinates have been invented or approved.
+
+## Additional side-view evidence — November 7, 2026
+User supplied two in-game side-angle screenshots after the initial same-slot calibration.
+
+- **Top side view**: red front panel meets blue back panel beneath the arm; grid lines bend around the torso and the side transition is not a straight source-image edge. The shorts in this view are plain gray, so this image should not be used to infer shorts seam coordinates.
+- **Shorts side/rear three-quarter view**: purple rear panel extends around the hip, with a narrow visible green front-side strip near the leg opening; the gold waistband is not prominent in this screenshot. Top is also visible, but prioritize the shorts edge here.
+- These are visual confirmations of **rendered garment adjacency only**. No pixel-exact UV pairs have been established. Do not build a blind edge-blending algorithm based on these images alone.
+- Next input for precise implementation: original flat numbered calibration PNGs as imported into the game (with image dimensions) and, if possible, a close view of the other side for orientation.
+- Keep user testing minimal: do not ask to repeat the successful front/back or side tests.
+
+Image provenance: user-provided WWE 2K26 screenshot attachments in the same conversation; image files are not committed to this repository.
