@@ -847,7 +847,7 @@ func switchTab(n int){
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
  for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
  for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
- for _,id:=range []int{351,352,353,354,355,356}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
+ for _,id:=range []int{351,352,353,354,355,356,357}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
 }
 
 var values=map[string]int{}
@@ -1512,7 +1512,7 @@ func main(){
  ctl("STATIC","BODY TEXTURE STUDIO — Preserve approved WWE 2K26 UV atlas",30,105,950,30,351,0);
  ctl("STATIC","Approved body UV atlas PNG path:",30,165,750,25,356,0);
  ctl("EDIT","",30,197,1020,32,352,WS_BORDER);
- ctl("STATIC","Face texture PNG path (skin-tone reference):",30,250,760,25,0,0);
+ ctl("STATIC","Face texture PNG path (skin-tone reference):",30,250,760,25,357,0);
  ctl("EDIT","",30,285,1020,32,353,WS_BORDER);
  ctl("BUTTON","Generate Skin-Matched Body UV PNG",30,350,450,42,355,0);
  ctl("STATIC","Enter the two PNG paths above. This matches skin tone on an existing atlas; it does not create UV geometry or DDS files.",30,425,1020,85,354,0);
