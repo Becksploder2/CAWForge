@@ -997,10 +997,27 @@ var morphSheetSections=[]struct{name string;items []string}{
  {"Chin",[]string{"Chin Width","Chin Height","Chin Forward/Back","Chin Vertical Placement"}},
  {"Parietal Region",[]string{"Parietal Region Size"}},
 }
+// Read user-editable section labels from the installed JSON file.
+// Missing or invalid files fall back to the built-in canonical layout.
+func loadedMorphSheetSections()[]struct{name string;items []string}{
+ exe,e:=os.Executable();if e!=nil{return morphSheetSections}
+ path:=filepath.Join(filepath.Dir(exe),"assets","templates","morph_sheet_template.json")
+ raw,e:=os.ReadFile(path);if e!=nil{return morphSheetSections}
+ var config struct{Version int `json:"version"`;Sections []struct{Name string `json:"name"`;Items []string `json:"items"`} `json:"sections"`}
+ if e=json.Unmarshal(raw,&config);e!=nil||config.Version!=1||len(config.Sections)==0{return morphSheetSections}
+ result:=make([]struct{name string;items []string},0,len(config.Sections))
+ for _,section:=range config.Sections{
+  if strings.TrimSpace(section.Name)==""||len(section.Items)==0{return morphSheetSections}
+  items:=make([]string,0,len(section.Items))
+  for _,item:=range section.Items{if strings.TrimSpace(item)==""{return morphSheetSections};items=append(items,item)}
+  result=append(result,struct{name string;items []string}{section.Name,items})
+ }
+ return result
+}
 func sheet()string{
  var b strings.Builder
  fmt.Fprintf(&b,"## %s\r\n\r\n### Face Template\r\n- Face Template: %s%d\r\n\r\n",txt(20),gender,template)
- for _,g:=range morphSheetSections{
+ for _,g:=range loadedMorphSheetSections(){
   fmt.Fprintf(&b,"### %s\r\n",g.name)
   for _,item:=range g.items{fmt.Fprintf(&b,"- %s:\r\n",item)}
   b.WriteString("\r\n")
