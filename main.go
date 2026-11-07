@@ -20,6 +20,8 @@ import (
 
  _ "image/gif"
  "encoding/json"
+ "encoding/base64"
+ "mime/multipart"
  "math"
  "sort"
  "time"
@@ -203,10 +205,10 @@ func scanIndex()(Index,string){
   }
  }}
  raw,_:=json.MarshalIndent(next,"","  ");_ = os.WriteFile(filepath.Join(templateLibraryDir,"calibration_index.json"),raw,0644)
- if len(next.Entries)==0{return next,"Library is empty. Add M1-M20 or F1-F20 reference screenshots; no calibration performed."};return next,fmt.Sprintf("Ready: %d/40 templates (%d loaded from cache, %d unreadable).",len(next.Entries),reused,skipped)
+ if len(next.Entries)==0{return next,"Template library empty at "+templateLibraryDir+". Add M1-M20 and F1-F21 screenshots, then Rebuild Index; no calibration performed."};return next,fmt.Sprintf("Ready: %d/41 templates (%d loaded from cache, %d unreadable).",len(next.Entries),reused,skipped)
 }
 func beginCalibration(){
- if calibrationRunning{return};calibrationRunning=true;set(41,"Indexing available M1-M20 and F1-F20 screenshots...")
+ if calibrationRunning{return};calibrationRunning=true;set(41,"Indexing available M1-M20 and F1-F21 screenshots...")
  go func(){next,msg:=scanIndex();calMu.Lock();index=next;calibrationMessage=msg;calMu.Unlock();postMessage.Call(hwnd,WM_CAL_DONE,0,0)}()
 }
 func matchPhoto(){
@@ -214,7 +216,7 @@ func matchPhoto(){
  if matchRunning{matchQueued=true;return}
  calMu.Lock();entries:=append([]Fingerprint(nil),index.Entries...);calMu.Unlock()
  count:=0;for _,e:=range entries{if strings.HasPrefix(e.ID,gender){count++}}
- if count==0{set(41,"No verified "+gender+" templates installed. Add reference images to assets/templates; matching unavailable.");return}
+ if count==0{set(41,"No indexed "+gender+" template images. Required: "+filepath.Join(templateLibraryDir,gender+"1.png")+" (through "+gender+"21). Import real WWE 2K26 template screenshots, then Rebuild Index. No placeholder morph estimates applied.");return}
  matchRunning=true;set(41,"Comparing photo to "+strconv.Itoa(count)+" installed references in background...")
  photo:=imagePath;selectedGender:=gender;started:=time.Now()
  go func(){
@@ -256,8 +258,7 @@ func generateTexture(photoPath,outPath string)error{
  im,_,err:=image.Decode(f);if err!=nil{return err}
  b:=im.Bounds();w,h:=b.Dx(),b.Dy()
  if w<100||h<100{return fmt.Errorf("photo too small")}
- // Face-only elliptical matte: discard the original photograph background.
- // This is a centered-photo fallback, not a landmark/segmentation model.
+ // Centered rectangular crop, not AI face segmentation or expression editing.
  cropW:=int(float64(w)*0.62);cropH:=int(float64(h)*0.78)
  if cropW>cropH*3/4{cropW=cropH*3/4}
  if cropW<1{cropW=1};if cropH>h{cropH=h}
@@ -276,21 +277,22 @@ func generateTexture(photoPath,outPath string)error{
  bg:=color.RGBA{uint8(sr/uint64(len(sample))),uint8(sg/uint64(len(sample))),uint8(sb/uint64(len(sample))),255}
  dst:=image.NewRGBA(image.Rect(0,0,820,820))
  for y:=0;y<820;y++{for x:=0;x<820;x++{
-  // Oval excludes outer photographic backdrop; soft edges blend into skin.
-  fx:=(float64(x)-106)/608;fy:=(float64(y)-25)/770
-  nx:=(fx-0.5)/0.5;ny:=(fy-0.5)/0.5
-  radius:=math.Sqrt(nx*nx+ny*ny)
-  alpha:=math.Max(0,math.Min(1,(0.88-radius)/0.16))
-  if fx<0||fx>=1||fy<0||fy>=1||alpha<=0{dst.SetRGBA(x,y,bg);continue}
-  sx:=x0+int(fx*float64(cropW));sy:=y0+int(fy*float64(cropH))
+  // Rectangular, edge-feathered crop: no elliptical halo or circular cutoff.
+  // The standard mode is deliberately non-generative: it cannot close a smile
+  // or reconstruct skin hidden by hair. Use Local AI for those operations.
+  fx:=float64(x)/819;fy:=float64(y)/819
+  sx:=x0+minInt(cropW-1,int(fx*float64(cropW-1)))
+  sy:=y0+minInt(cropH-1,int(fy*float64(cropH-1)))
   r,g,bb,_:=im.At(sx,sy).RGBA()
+  edge:=math.Min(math.Min(float64(x),float64(819-x)),math.Min(float64(y),float64(819-y)))
+  alpha:=math.Min(1,math.Max(0,edge/115))
   dst.SetRGBA(x,y,color.RGBA{uint8(alpha*float64(r>>8)+(1-alpha)*float64(bg.R)),uint8(alpha*float64(g>>8)+(1-alpha)*float64(bg.G)),uint8(alpha*float64(bb>>8)+(1-alpha)*float64(bg.B)),255})
  }}
  o,err:=os.Create(outPath);if err!=nil{return err};defer o.Close()
  return png.Encode(o,dst)
 }
 
-const faceTexturePrompt = `Create an 820x820 photorealistic WWE 2K26 face texture from the imported reference photograph. Preserve the person's real facial proportions, eye placement, nose shape, lips, makeup, natural skin tone, pores and recognizable details. Perfectly frontal, symmetrical alignment, neutral expression, even neutral studio lighting. No hair, no ears, no glasses, no accessories, no dark jawline or chin shadow, no harsh face boundary, no text or background objects. Surround the face with seamlessly blended matching skin texture, maintaining natural realistic pores. Align eyes, nose, mouth, forehead and jaw to the selected in-game face template; prioritize accurate template placement and smooth transitions over stylization. Do not invent or change the person's facial features.`
+const faceTexturePrompt = `Create an 820x820 photorealistic WWE 2K26 face texture from the imported reference photograph. Preserve the person's real facial proportions, eye placement, nose shape, lips, makeup, natural skin tone, pores and recognizable details. Perfectly frontal, symmetrical alignment, neutral expression, even neutral studio lighting. Completely remove hair including bangs and side hair, remove ears, keep natural eyebrows, close lips into a relaxed neutral expression with no teeth visible, remove glasses and accessories, no dark jawline or chin shadow, no circular or oval vignette, no visible cutout boundary, no text or background objects. Surround the face with seamlessly blended matching skin texture, maintaining natural realistic pores. Align eyes, nose, mouth, forehead and jaw to the selected in-game face template; prioritize accurate template placement and smooth transitions over stylization. Do not invent or change the person's facial features.`
 func writeFacePrompt(path string)error{
  folder:=filepath.Dir(path)
  return os.WriteFile(filepath.Join(folder,"WWE_Face_Texture_Generation_Prompt.txt"),[]byte(faceTexturePrompt+"\r\n"),0644)
@@ -361,9 +363,9 @@ func runAITexture(){
   var result,outputPath string
   engine:=filepath.Join(dir,"local-engine.exe")
   if _,err:=os.Stat(engine);err!=nil{
-   result="Local AI is unavailable: local-engine.exe is not installed. Standard face texture generation remains available."
+   result="Local AI is unavailable: local-engine.exe is missing from "+dir+". This build does not include a local inference backend. Rebuild with a compatible engine and model; OpenAI mode separately requires OPENAI_API_KEY."
   }else if _,err:=os.Stat(workflow);err!=nil{
-   result="Local AI workflow not found. Standard face texture generation remains available."
+   result="Local AI workflow is missing: "+workflow+". The engine and its compatible model/workflow must both be packaged; no local AI inference was performed."
   }else{
    home,_:=os.UserHomeDir()
    if home==""{home=os.TempDir()}
@@ -382,8 +384,24 @@ func runAITexture(){
      detail:=string(output);if len(detail)>600{detail=detail[:600]}
      result="Local AI failed: "+err.Error()+" "+detail
     }else{
-     result="Saved 820 x 820: "+out
-     outputPath=out
+     // A worker exit code of zero is not proof that a valid face texture exists.
+     file,openErr:=os.Open(out)
+     if openErr!=nil{
+      result="Local AI returned success but did not create a face texture: "+openErr.Error()
+     }else{
+      config,format,decodeErr:=image.DecodeConfig(file)
+      closeErr:=file.Close()
+      if decodeErr!=nil{
+       result="Local AI produced an unreadable image: "+decodeErr.Error()
+      }else if closeErr!=nil{
+       result="Local AI output could not be closed: "+closeErr.Error()
+      }else if format!="png"||config.Width!=820||config.Height!=820{
+       result=fmt.Sprintf("Local AI output rejected: expected 820 x 820 PNG, got %d x %d %s.",config.Width,config.Height,format)
+      }else{
+       result="Saved verified 820 x 820 PNG: "+out+" (visual quality not yet verified)"
+       outputPath=out
+      }
+     }
     }
    }
   }
@@ -401,43 +419,189 @@ func traceTexture(event string){
  defer f.Close()
  fmt.Fprintf(f,"%s %s\n",time.Now().Format(time.RFC3339Nano),event)
 }
+// Generate an edited face texture from the actual reference photo.
+// The old crop mode produced portraits and could never remove hair or smiles.
+func generateEditedFaceTexture(photo,out string)error{
+ key:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+ if key==""{return fmt.Errorf("real face texture generation needs OPENAI_API_KEY; the old portrait-crop exporter has been disabled")}
+ f,err:=os.Open(photo);if err!=nil{return err};defer f.Close()
+ var body bytes.Buffer
+ writer:=multipart.NewWriter(&body)
+ writer.WriteField("model","gpt-image-1")
+ writer.WriteField("size","1024x1024")
+ writer.WriteField("prompt",faceTexturePrompt+" IMPORTANT: This is a flat game face texture, NOT a finished portrait. Remove all hair and ears, no smile or teeth, remove oval vignette and visible cutout edges, keep the real eyes, brows, nose, lips and skin pores. Fill entire canvas with continuous matching skin. No decorative background.")
+ part,err:=writer.CreateFormFile("image",filepath.Base(photo));if err!=nil{return err}
+ if _,err=io.Copy(part,f);err!=nil{return err}
+ if err=writer.Close();err!=nil{return err}
+ ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute);defer cancel()
+ req,err:=http.NewRequestWithContext(ctx,"POST","https://api.openai.com/v1/images/edits",&body);if err!=nil{return err}
+ req.Header.Set("Authorization","Bearer "+key);req.Header.Set("Content-Type",writer.FormDataContentType())
+ resp,err:=http.DefaultClient.Do(req);if err!=nil{return err};defer resp.Body.Close()
+ data,err:=io.ReadAll(io.LimitReader(resp.Body,24<<20));if err!=nil{return err}
+ if resp.StatusCode!=200{return fmt.Errorf("face image API %s: %s",resp.Status,strings.TrimSpace(string(data[:minInt(len(data),500)])))}
+ var result struct{Data []struct{B64JSON string `json:"b64_json"`}`json:"data"`}
+ if err=json.Unmarshal(data,&result);err!=nil{return err}
+ if len(result.Data)==0||result.Data[0].B64JSON==""{return fmt.Errorf("image API returned no face texture")}
+ raw,err:=base64.StdEncoding.DecodeString(result.Data[0].B64JSON);if err!=nil{return err}
+ src,_,err:=image.Decode(bytes.NewReader(raw));if err!=nil{return err}
+ bounds:=src.Bounds();dst:=image.NewRGBA(image.Rect(0,0,820,820))
+ for y:=0;y<820;y++{for x:=0;x<820;x++{
+  sx:=bounds.Min.X+x*bounds.Dx()/820;sy:=bounds.Min.Y+y*bounds.Dy()/820
+  dst.Set(x,y,src.At(sx,sy))
+ }}
+ output,err:=os.Create(out);if err!=nil{return err};defer output.Close()
+ return png.Encode(output,dst)
+}
 func startTexture(){
- // Avoid synchronous file logging on the UI thread.
  if imagePath==""{alert("Import a reference photograph first.");return}
  if textureBusy{return}
+ mode,_,_:=send.Call(ctrls[219],CB_GETCURSEL,0,0)
+ if mode==0{runAITexture();return}
+ if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{set(203,"OpenAI mode needs OPENAI_API_KEY. Select Local AI to use the installed local engine.");return}
  textureBusy=true
- set(203,"Generating 820 x 820 texture in background...")
+ set(203,"AI editing reference into a hairless, neutral 820 x 820 face texture...")
  photo:=imagePath
  go func(){
-  home,_:=os.UserHomeDir()
-  if home==""{home=os.TempDir()}
-  filename:=strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png"
-  // Documents may be redirected to OneDrive or unavailable on some machines.
-  // Try user-controlled folders before treating a valid texture as a failed export.
-  dirs:=[]string{filepath.Join(home,"Documents","CAWForge","FaceTextures"),filepath.Join(home,"Pictures","CAWForge","FaceTextures"),filepath.Join(home,"CAWForge","FaceTextures")}
-  var path string
-  var err error
-  traceTexture("Standard texture generation started: "+photo)
-  for _,dir:=range dirs{
-   if e:=os.MkdirAll(dir,0755);e!=nil{err=e;traceTexture("Output folder unavailable: "+dir+": "+e.Error());continue}
-   candidate:=filepath.Join(dir,filename)
-   if e:=generateTexture(photo,candidate);e!=nil{
-    err=e;traceTexture("Texture output failed: "+candidate+": "+e.Error())
-    // Input decoding/geometry errors cannot be fixed by changing folders.
-    if _,statErr:=os.Stat(candidate);statErr==nil{_ = os.Remove(candidate)}
-    continue
-   }
-   path=candidate;err=nil;break
-  }
-  if err!=nil{traceTexture("Texture error: "+err.Error())}else{traceTexture("Texture saved: "+path);_ = writeFacePrompt(path)}
+  home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
+  dir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
+  err:=os.MkdirAll(dir,0755)
+  out:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png")
+  if err==nil{err=generateEditedFaceTexture(photo,out)}
   matchMu.Lock()
-  if err!=nil{faceTextureStatus="Texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="Saved: "+path;faceTexturePreviewPath=path}
+  if err!=nil{faceTextureStatus="Face texture failed: "+err.Error();faceTexturePreviewPath=""}else{faceTextureStatus="AI face texture saved: "+out+" (inspect before importing)";faceTexturePreviewPath=out}
   matchMu.Unlock()
-  traceTexture("Posting texture completion event")
   postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
  }()
 }
 
+var seamAuto=true
+var seamTop=true
+var seamTights=true
+var seamWaist=true
+// Enforce identical left/right borders with a feathered seam transition.
+// Game-specific UV seams still require calibrated UV templates.
+func tileSeam(src image.Image)*image.RGBA{
+ b:=src.Bounds();w,h:=b.Dx(),b.Dy();dst:=image.NewRGBA(image.Rect(0,0,w,h))
+ draw.Draw(dst,dst.Bounds(),src,b.Min,draw.Src)
+ band:=w/10
+ for y:=0;y<h;y++{
+  a:=color.RGBAModel.Convert(src.At(b.Min.X,b.Min.Y+y)).(color.RGBA)
+  z:=color.RGBAModel.Convert(src.At(b.Min.X+w-1,b.Min.Y+y)).(color.RGBA)
+  mid:=color.RGBA{uint8((uint16(a.R)+uint16(z.R))/2),uint8((uint16(a.G)+uint16(z.G))/2),uint8((uint16(a.B)+uint16(z.B))/2),uint8((uint16(a.A)+uint16(z.A))/2)}
+  for i:=0;i<band;i++{
+   t:=float64(band-i)/float64(band)
+   blend:=func(v uint8,target uint8)uint8{return uint8(float64(v)*(1-t)+float64(target)*t+0.5)}
+   for _,x:=range []int{i,w-1-i}{
+    v:=color.RGBAModel.Convert(src.At(b.Min.X+x,b.Min.Y+y)).(color.RGBA)
+    dst.SetRGBA(x,y,color.RGBA{blend(v.R,mid.R),blend(v.G,mid.G),blend(v.B,mid.B),blend(v.A,mid.A)})
+   }
+  }
+  dst.SetRGBA(0,y,mid);dst.SetRGBA(w-1,y,mid)
+ }
+ return dst
+}
+func exportSeamPanels(src image.Image,dir,stem string)error{
+ for _,p:=range []struct{name string;enabled bool}{{"top",seamTop},{"tights",seamTights},{"waistband",seamWaist}}{
+  if !p.enabled{continue}
+  f,e:=os.Create(filepath.Join(dir,stem+"_"+p.name+"_seamless.png"));if e!=nil{return e}
+  e=png.Encode(f,tileSeam(src));ce:=f.Close();if e!=nil{return e};if ce!=nil{return ce}
+ }
+ return nil
+}
+// Render Creator retains source RGB values; only alpha changes.
+// This conservative border-connected background mask is intended for plain CAS backdrops.
+func removeRenderBackground(path string)(string,error){
+ f,e:=os.Open(path);if e!=nil{return "",e};src,_,e:=image.Decode(f);f.Close();if e!=nil{return "",e}
+ b:=src.Bounds();w,h:=b.Dx(),b.Dy();if w<16||h<16||int64(w)*int64(h)>32000000{return "",fmt.Errorf("unsupported screenshot size")}
+ img:=image.NewNRGBA(image.Rect(0,0,w,h));draw.Draw(img,img.Bounds(),src,b.Min,draw.Src)
+ type rgb struct{r,g,b int}
+ get:=func(i int)rgb{j:=i*4;return rgb{int(img.Pix[j]),int(img.Pix[j+1]),int(img.Pix[j+2])}}
+ dist:=func(a,b rgb)int{dr:=a.r-b.r;dg:=a.g-b.g;db:=a.b-b.b;return dr*dr+dg*dg+db*db}
+ corners:=[]rgb{get(0),get(w-1),get((h-1)*w),get(w*h-1)}
+ near:=func(p rgb)bool{for _,c:=range corners{if dist(p,c)<24*24{return true}};return false}
+ mask:=make([]bool,w*h);queue:=make([]int,0,w*h/4)
+ seed:=func(i int){if !mask[i]&&near(get(i)){mask[i]=true;queue=append(queue,i)}}
+ for x:=0;x<w;x++{seed(x);seed((h-1)*w+x)}
+ for y:=0;y<h;y++{seed(y*w);seed(y*w+w-1)}
+ for head:=0;head<len(queue);head++{
+  i:=queue[head];y:=i/w
+  for _,j:=range []int{i-1,i+1,i-w,i+w}{
+   if j<0||j>=w*h||mask[j]||((j==i-1||j==i+1)&&j/w!=y){continue}
+   if near(get(j))&&dist(get(j),get(i))<28*28{mask[j]=true;queue=append(queue,j)}
+  }
+ }
+ if len(queue)<w*h/100{return "",fmt.Errorf("background not confidently detected; use a plain contrasting CAS backdrop")}
+ if len(queue)>w*h*85/100{return "",fmt.Errorf("background selection covers most of screenshot; refusing destructive cutout")}
+ for i,removed:=range mask{if removed{img.Pix[i*4+3]=0}}
+ name:=strings.TrimSuffix(filepath.Base(path),filepath.Ext(path))
+ out:=filepath.Join(filepath.Dir(path),name+"_caw_transparent.png")
+ dest,e:=os.Create(out);if e!=nil{return "",e};e=png.Encode(dest,img);ce:=dest.Close();if e!=nil{return "",e};if ce!=nil{return "",ce}
+ return out,nil
+}
+// A local segmentation helper can produce an alpha mask without regenerating
+// the wrestler. Expected command: render-segmenter.exe <input> <output.png>.
+// Its output alpha is applied to ORIGINAL screenshot RGB values.
+func segmentRenderBackground(path string)(string,error){
+ exe,err:=os.Executable();if err!=nil{return "",err}
+ helper:=filepath.Join(filepath.Dir(exe),"render-segmenter.exe")
+ if _,err:=os.Stat(helper);err!=nil{return "",fmt.Errorf("AI cutout requires render-segmenter.exe beside CAWForge; complex backgrounds cannot be removed by the color-only fallback")}
+ sourceFile,err:=os.Open(path);if err!=nil{return "",err}
+ source,_,err:=image.Decode(sourceFile);sourceFile.Close();if err!=nil{return "",err}
+ b:=source.Bounds();w,h:=b.Dx(),b.Dy()
+ if w<16||h<16||int64(w)*int64(h)>32000000{return "",fmt.Errorf("unsupported screenshot size")}
+ tmp,err:=os.CreateTemp("","cawforge-mask-*.png");if err!=nil{return "",err}
+ maskPath:=tmp.Name();tmp.Close();os.Remove(maskPath);defer os.Remove(maskPath)
+ ctx,cancel:=context.WithTimeout(context.Background(),4*time.Minute);defer cancel()
+ cmd:=exec.CommandContext(ctx,helper,path,maskPath)
+ logs,err:=cmd.CombinedOutput()
+ if err!=nil{return "",fmt.Errorf("segmentation failed: %v: %s",err,string(logs))}
+ f,err:=os.Open(maskPath);if err!=nil{return "",fmt.Errorf("segmenter did not write mask: %w",err)}
+ mask,_,err:=image.Decode(f);f.Close();if err!=nil{return "",err}
+ if mask.Bounds().Dx()!=w||mask.Bounds().Dy()!=h{return "",fmt.Errorf("segmentation mask dimensions do not match source screenshot")}
+ result:=image.NewNRGBA(image.Rect(0,0,w,h))
+ draw.Draw(result,result.Bounds(),source,b.Min,draw.Src)
+ kept:=0
+ for y:=0;y<h;y++{for x:=0;x<w;x++{
+  _,_,_,alpha:=mask.At(mask.Bounds().Min.X+x,mask.Bounds().Min.Y+y).RGBA()
+  a:=uint8(alpha>>8)
+  result.Pix[y*result.Stride+x*4+3]=a
+  if a>127{kept++}
+ }}
+ if kept<w*h/100||kept>w*h*85/100{return "",fmt.Errorf("segmentation mask failed sanity check; original image remains untouched")}
+ name:=strings.TrimSuffix(filepath.Base(path),filepath.Ext(path))
+ out:=filepath.Join(filepath.Dir(path),name+"_caw_transparent.png")
+ f,err=os.Create(out);if err!=nil{return "",err}
+ err=png.Encode(f,result);closeErr:=f.Close();if err!=nil{return "",err};if closeErr!=nil{return "",closeErr}
+ return out,nil
+}
+func startRenderCutout(){
+ if renderImagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
+ if renderBusy{return}
+ mode,_,_:=send.Call(ctrls[325],CB_GETCURSEL,0,0)
+ if mode==1{set(322,"AI Promotional Render requires an image-generation backend; not available in this build. No image was changed.");return}
+ renderBusy=true
+ set(322,"Processing CAW screenshot: "+filepath.Base(renderImagePath)+" (original-pixel cutout, no generated patterns)...")
+ path:=renderImagePath
+ go func(){
+  output,err:=segmentRenderBackground(path)
+  method:="local segmentation helper"
+  // The bundled helper may be absent in development builds. For a plain,
+  // contrasting CAS backdrop, offer a conservative pixel-preserving fallback.
+  // Never label this color flood-fill as AI segmentation.
+  if err!=nil && strings.Contains(err.Error(),"render-segmenter.exe beside CAWForge"){
+   method="plain-background color mask (not AI)"
+   output,err=removeRenderBackground(path)
+  }
+  matchMu.Lock()
+  if err!=nil{renderStatus="Cutout unavailable: "+err.Error()}else{renderStatus="Original-pixel transparent PNG ("+method+"): "+output+" (inspect hair and clothing edges)"}
+  matchMu.Unlock()
+  postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
+ }()
+}
+var renderImagePath string
+var renderBusy bool
+var renderStatus string
+const WM_RENDER_DONE=0x8029
 func proceduralGraphic(kind,description string) (string,error) {
  desc:=strings.ToLower(description)
  width,height:=1024,1024
@@ -445,7 +609,7 @@ func proceduralGraphic(kind,description string) (string,error) {
  if kind=="Wrestling sign"{width,height=1024,512}
  img:=image.NewRGBA(image.Rect(0,0,width,height))
  // Optional transparent base for wearable graphics and logos.
- transparent:=kind=="Attire pattern"||kind=="Wrestler logo"
+ transparent:=kind=="Wrestler logo"
  primary:=color.RGBA{205,45,113,255}
  secondary:=color.RGBA{255,206,230,255}
  switch {
@@ -460,12 +624,10 @@ func proceduralGraphic(kind,description string) (string,error) {
  stripes:=strings.Contains(desc,"stripe")||strings.Contains(desc,"pinstripe")
  checker:=strings.Contains(desc,"check")||strings.Contains(desc,"checker")
  star:=strings.Contains(desc,"star")
- if !plaid&&!stripes&&!checker&&!star {stripes=true}
+ // No recognized motif means a solid color, never surprise stripes.
  for y:=0;y<height;y++{for x:=0;x<width;x++{
   v:=primary
-  if !transparent{
-   if (x+y)/90%2==0{v=secondary}
-  }
+  // Solid base unless a requested pattern overrides it.
   if plaid{
    if x%160<27||y%160<27{v=secondary}
    if x%160<7||y%160<7{v=primary}
@@ -493,22 +655,68 @@ func proceduralGraphic(kind,description string) (string,error) {
  out:=filepath.Join(dir,fmt.Sprintf("%s_%d.png",safe,time.Now().UnixNano()))
  f,err:=os.Create(out);if err!=nil{return "",err};defer f.Close()
  if err:=png.Encode(f,img);err!=nil{return "",err}
+ if kind=="Attire pattern"&&seamAuto{if err:=exportSeamPanels(img,dir,strings.TrimSuffix(filepath.Base(out),".png"));err!=nil{return "",err}}
  return out,nil
+}
+// generateAIAttire uses the OpenAI Images API. No credentials are stored in
+// the app; set OPENAI_API_KEY in the user's environment before launching.
+func generateAIAttire(description string)(string,error){
+ key:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+ if key==""{return "",fmt.Errorf("AI attire requires OPENAI_API_KEY. Offline patterns cannot generate outfits")}
+ home,err:=os.UserHomeDir();if err!=nil{return "",err}
+ dir:=filepath.Join(home,"Documents","CAWForge","AIAttire")
+ if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
+ stamp:=strconv.FormatInt(time.Now().UnixNano(),10)
+ for _,piece:=range []string{"top","tights","waistband"}{
+  prompt:=fmt.Sprintf("Create a high quality, FLAT 2D printable professional wrestling attire TEXTURE DESIGN for the %s. Design brief: %s. Output a single square artwork panel, orthographic graphic only, no human body, no wrestler, no mannequin, no mockup, no text labels, no background scenery. Coordinate colors and motifs across the complete attire. This is concept art, not a game UV template.",piece,description)
+  payload,_:=json.Marshal(map[string]interface{}{"model":"gpt-image-1","prompt":prompt,"size":"1024x1024","n":1})
+  ctx,cancel:=context.WithTimeout(context.Background(),3*time.Minute)
+  req,err:=http.NewRequestWithContext(ctx,"POST","https://api.openai.com/v1/images/generations",bytes.NewReader(payload))
+  if err!=nil{cancel();return "",err}
+  req.Header.Set("Authorization","Bearer "+key);req.Header.Set("Content-Type","application/json")
+  res,err:=http.DefaultClient.Do(req)
+  if err!=nil{cancel();return "",err}
+  data,readErr:=io.ReadAll(io.LimitReader(res.Body,24<<20));res.Body.Close();cancel()
+  if readErr!=nil{return "",readErr}
+  if res.StatusCode!=200{return "",fmt.Errorf("image API %s: %s",res.Status,strings.TrimSpace(string(data[:minInt(len(data),600)])))}
+  var response struct{Data []struct{B64JSON string `json:"b64_json"`}`json:"data"`}
+  if err=json.Unmarshal(data,&response);err!=nil{return "",err}
+  if len(response.Data)==0||response.Data[0].B64JSON==""{return "",fmt.Errorf("image API returned no PNG for %s",piece)}
+  pngData,err:=base64.StdEncoding.DecodeString(response.Data[0].B64JSON);if err!=nil{return "",err}
+  if _,err=png.Decode(bytes.NewReader(pngData));err!=nil{return "",fmt.Errorf("invalid PNG for %s: %w",piece,err)}
+  out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
+  if err=os.WriteFile(out,pngData,0600);err!=nil{return "",err}
+ }
+ return dir,nil
 }
 func startGraphic(){
  if graphicBusy{return}
  kindIndex,_,_:=send.Call(ctrls[304],CB_GETCURSEL,0,0)
- kinds:=[]string{"Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}
- if int(kindIndex)>=len(kinds){alert("Select a graphic type.");return}
+ kinds:=[]string{"","Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}
+ if kindIndex==0||int(kindIndex)>=len(kinds){alert("Choose a graphic category first: attire, logo, entrance background, or fan sign.");return}
  kind:=kinds[kindIndex]
  prompt:=strings.TrimSpace(txt(305))
- if prompt==""{alert("Describe the colors and pattern first.");return}
+ if prompt==""{alert("Describe the selected graphic first.");return}
+ if kind=="Attire pattern"{
+  exe,_:=os.Executable()
+  uvDir:=filepath.Join(filepath.Dir(exe),"assets","attire-uv")
+  required:=[]string{"top.png","tights.png","waistband.png"}
+  var missing []string
+  for _,name:=range required{if _,err:=os.Stat(filepath.Join(uvDir,name));err!=nil{missing=append(missing,name)}}
+  if len(missing)>0{
+   set(306,"Full WWE 2K26 UV maps required. Missing "+strings.Join(missing,", ")+" in "+uvDir+". Stripe/pattern fallback disabled; no fake UV texture generated.")
+   return
+  }
+  set(306,"UV references detected, but UV-island mapping and garment projection are not implemented yet. No misleading texture exported.")
+  return
+ }
  graphicBusy=true
- set(306,"Generating local graphic...")
+ if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{set(306,"Generating three cloud AI attire concept panels...")}else if kind=="Attire pattern"{set(306,"No OpenAI key: generating basic offline attire pattern and seam panels (not AI or game UV).")}else{set(306,"Generating offline graphic...")}
  go func(){
-  path,err:=proceduralGraphic(kind,prompt)
+  var path string;var err error
+   if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{path,err=generateAIAttire(prompt)}else{path,err=proceduralGraphic(kind,prompt)}
   matchMu.Lock()
-  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved: "+path}
+  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | Offline patterns are basic; cloud AI designs are concepts. Neither is a verified WWE 2K26 UV map."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
@@ -541,8 +749,9 @@ func switchTab(n int){
  }
  for i:=0;i<12;i++{if v:=ctrls[50+i];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
- for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
- for _,id:=range []int{301,302,303,304,305,306,307}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
+ for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
+ for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
+ for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
 }
 
 var values=map[string]int{}
@@ -597,9 +806,11 @@ func fileDialog(save bool)(string,error){
 
 var templatePickerMode bool
 var gridPickerMode string
+var pickerSourceTab int
 func beginPicker(save bool){
  if pickerBusy{return}
  pickerBusy=true
+ pickerSourceTab=currentTab
  // Keep the message loop free of synchronous diagnostics disk I/O.
  set(25,"Opening Windows photo picker...")
  if currentTab==1{set(203,"Opening photo picker...")}
@@ -883,6 +1094,7 @@ case WM_PHOTO_VALIDATED:
  photoImportMu.Lock();path,err:=photoImportPath,photoImportError;photoImportMu.Unlock()
  if err!=""{set(25,"Photo import failed: "+err);if currentTab==1{set(203,"Photo import failed: "+err)};importTrace("photo validated UI handler exited with error");return 0}
  imagePath=path
+ if pickerSourceTab==3||currentTab==3{renderImagePath=path;set(322,"CAW screenshot selected: "+filepath.Base(path)+". Original cutout only removes the background; it never creates stripes.");return 0}
  set(25,"Photo loaded: "+filepath.Base(path))
  importTrace("photo loaded status set")
  if currentTab==1 {
@@ -892,12 +1104,12 @@ case WM_PHOTO_VALIDATED:
   return 0
  }
  if currentTab==0 {
-  // Import must only register the validated photo. Large image decoding,
-  // automatic template matching and previews previously launched together
-  // immediately after import, causing severe memory/CPU contention.
-  // Keep explicit Match Photo and template-preview controls available.
-  set(41,"Reference photo ready. Select Match Photo to analyze it; import does not automatically start image processing.")
-  importTrace("morph settings photo import handler completed")
+  // Auto-match after validation on a background worker. Matching completion
+  // applies the suggested morph values and redraws visible slider controls.
+  // Do not start preview rendering simultaneously with photo decoding.
+  set(41,"Photo imported. Auto-matching template and estimating face sliders...")
+  matchPhoto()
+  importTrace("morph photo auto-match requested")
  }
  return 0
 case WM_PREVIEW_READY:applyMorphPreview();return 0
@@ -912,6 +1124,7 @@ case WM_TIMER:
 case WM_MATCH_DONE:
  matchMu.Lock();message,best,estimated:=matchMessage,matchID,morphResult;matchMu.Unlock();matchRunning=false
  if best!="" && strings.HasPrefix(best,gender){n,_:=strconv.Atoi(best[1:]);template=n;send.Call(ctrls[3],CB_SETCURSEL,uintptr(n-1),0);set(23,best);for key,value:=range estimated{values[key]=value};drawGroup();updateMorphPreview()};set(41,message);if matchQueued{matchQueued=false;matchPhoto()};return 0
+case WM_RENDER_DONE:matchMu.Lock();status:=renderStatus;matchMu.Unlock();renderBusy=false;set(322,status);return 0
 case WM_GRAPHIC_DONE:
  matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);return 0
 case WM_AI_DONE:
@@ -936,7 +1149,7 @@ case WM_PICKER_DONE:
    if err!=nil{exportStatus="Morph sheet export failed: "+err.Error()}else{exportStatus="Morph sheet exported: "+path}
    matchMu.Unlock()
    postMessage.Call(hwnd,WM_EXPORT_DONE,0,0)
-  }()}}else{importTrace("picker result accepted");acceptPhoto(path)}
+  }()}}else{importTrace("picker result accepted");if pickerSourceTab==3&&path!=""{renderImagePath="";set(322,"Validating CAW screenshot: "+filepath.Base(path))};acceptPhoto(path)}
  importTrace("picker completion UI handler exited")
  return 0
 case WM_DROPFILES:
@@ -960,7 +1173,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==307:startGraphic();case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<62:active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -1132,7 +1345,7 @@ func main(){
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
  ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.32",20,15,565,28,0,0);
- ctl("BUTTON","Morph Settings",610,12,145,32,200,0);ctl("BUTTON","Face Texture",765,12,140,32,202,0);ctl("BUTTON","Graphic Generator",915,12,180,32,300,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
+ ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%6)*172,255+(i/6)*38,165,31,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
@@ -1145,7 +1358,10 @@ func main(){
  ctl("EDIT","",665,625,410,51,30,WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|ES_READONLY);drawGroup();
  ctl("BUTTON","Import Face Photo",30,305,340,40,217,0);
  ctl("BUTTON","Generate 820 x 820 Face Texture",30,365,340,40,201,0);
- ctl("STATIC","Centered front-facing photo recommended. Texture is a provisional crop with feathered edges; not a verified game UV layout.",30,645,980,45,203,0);
+ ctl("STATIC","Texture AI engine:",30,415,160,28,218,0);
+ ctl("COMBOBOX","",195,412,380,120,219,CBS_DROPDOWNLIST);
+ for _,mode:=range []string{"Local AI (default; requires installed engine)","OpenAI API (optional; paid)"}{send.Call(ctrls[219],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[219],CB_SETCURSEL,0,0);
+ ctl("STATIC","Import a front-facing photo. Local AI is the default; install local-engine.exe and a compatible workflow first. Cloud API is optional. No portrait-crop fallback.",30,645,980,45,203,0);
  ctl("STATIC","FACE TEXTURE PREVIEW (320 x 320)",425,110,500,28,204,0);
  ctl("STATIC","",425,150,320,320,205,SS_BITMAP|WS_BORDER);
  ctl("STATIC","Local AI uses the embedded WWE 2K26 master prompt, current template and ComfyUI. Output 820x820. A compatible image-editing workflow is required.",30,495,990,35,206,0);
@@ -1160,17 +1376,26 @@ func main(){
  for _,v:=range []string{"Skin-tone background","Transparent background","Seamless skin fill"}{send.Call(ctrls[213],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(v))))}
  send.Call(ctrls[213],CB_SETCURSEL,0,0)
  ctl("EDIT","",30,430,370,48,214,WS_BORDER|ES_MULTILINE);
- ctl("STATIC","Local AI ready. Requires running ComfyUI and a compatible workflow.",30,585,980,42,215,0);
+ ctl("STATIC","Local AI requires local-engine.exe and a compatible workflow; not bundled in this build.",30,585,980,42,215,0);
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
- ctl("STATIC","OFFLINE GRAPHIC GENERATOR",30,110,650,34,301,0);
- ctl("STATIC","Graphic type:",30,170,170,26,302,0);
- ctl("STATIC","Describe colors, stripes, plaid, checkerboard, or stars:",30,240,790,26,303,0);
- ctl("COMBOBOX","",200,165,350,260,304,CBS_DROPDOWNLIST);
- for _,kind:=range []string{"Attire pattern","Wrestler logo","Entrance background","Wrestling sign"}{send.Call(ctrls[304],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(kind))))}
+ ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
+ ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
+ ctl("STATIC","2. Describe the selected graphic (colors, words, logos and layout):",30,240,900,26,303,0);
+ ctl("COMBOBOX","",315,165,440,260,304,CBS_DROPDOWNLIST);
+ for _,kind:=range []string{"-- Choose graphic category --","Attire design (top, tights, waistband)","Wrestler logo / emblem","Entrance video background","Fan sign / arena placard"}{send.Call(ctrls[304],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(kind))))}
  send.Call(ctrls[304],CB_SETCURSEL,0,0)
- ctl("EDIT","Burnt orange and white plaid",30,275,650,35,305,WS_BORDER);
- ctl("STATIC","Creates patterned PNG assets locally. This is PROCEDURAL generation, not generative AI; logos contain no AI-generated lettering or characters.",30,390,980,70,306,0);
- ctl("BUTTON","Generate Graphic PNG",30,330,280,42,307,0);
+ ctl("EDIT","",30,275,850,35,305,WS_BORDER);
+ ctl("STATIC","Attire pattern: generates 3 AI concept panels using OPENAI_API_KEY (paid API). Other graphics remain procedural. Concepts are NOT WWE 2K26 UV maps.",30,390,980,70,306,0);
+ ctl("BUTTON","Generate Selected Graphic",30,330,330,42,307,0);
+ ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
+ ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
+ ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","AI Promotional Render (not configured)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background + Export PNG",30,275,380,42,323,0);
+ ctl("STATIC","Import a screenshot first. Complex screenshots require render-segmenter.exe (local AI helper) beside the app. The cutout preserves original RGB pixels. Promotional AI is not configured.",30,315,1000,100,322,0);
+ ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
+ ctl("BUTTON","Auto Seam Connect: true",30,515,235,34,308,0);
+ ctl("BUTTON","Top sides: true",275,515,195,34,309,0);
+ ctl("BUTTON","Tights leg sides: true",480,515,225,34,310,0);
+ ctl("BUTTON","Waistband: true",715,515,195,34,311,0);
  ctl("STATIC","Theme:",635,734,55,24,0,0)
  ctl("COMBOBOX","",690,730,260,190,401,CBS_DROPDOWNLIST)
  for _,label:=range []string{"Original Studio","WWE 2K22 (original if installed)","WWE 2K23 (original if installed)","WWE 2K24 (original if installed)","WWE 2K25 (original if installed)","WWE 2K26 (original if installed)","Custom Image"}{send.Call(ctrls[401],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(label))))}

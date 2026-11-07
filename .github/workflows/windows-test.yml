@@ -2,7 +2,7 @@ name: CAWForge Windows Test Build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/attire-auto-seam-connect]
     paths:
       - 'main.go'
       - 'go.mod'
@@ -31,17 +31,70 @@ jobs:
           $env:GOOS='windows'
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
+          # This repository is currently a standalone stdlib-only main.go without go.mod.
+          $env:GO111MODULE='off'
           go build -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
+      - name: Verify Windows executable header
+        shell: pwsh
+        run: |
+          $exe = 'CAWForge_Studio_Windows.exe'
+          if (!(Test-Path $exe)) { throw 'Windows executable was not created.' }
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $exe))
+          if ($bytes.Length -lt 512 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Invalid Windows MZ executable header.' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length -or [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4) -ne "PE`0`0") { throw 'Invalid Windows PE signature.' }
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x8664) { throw ('Unexpected PE machine type: 0x{0:X4}' -f $machine) }
+          Write-Host ('Validated x64 Windows PE: {0} bytes' -f $bytes.Length)
+      - name: Smoke-test GUI startup on Windows
+        shell: pwsh
+        run: |
+          # The app is a GUI program: successful startup means it remains alive
+          # briefly, not that it exits with status zero.
+          $exe = (Resolve-Path 'CAWForge_Studio_Windows.exe').Path
+          $process = Start-Process -FilePath $exe -WorkingDirectory (Get-Location).Path -PassThru
+          try {
+            Start-Sleep -Seconds 5
+            $process.Refresh()
+            if ($process.HasExited) {
+              throw ('CAWForge exited during startup (code {0}).' -f $process.ExitCode)
+            }
+            Write-Host ('GUI process remained running after startup: PID {0}' -f $process.Id)
+          }
+          finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Stage app and preserve template folders
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
           if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
-          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe')) {
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
           Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
+      - name: Report local AI runtime readiness
+        shell: pwsh
+        run: |
+          $dist = 'dist/CAWForge'
+          $engine = Join-Path $dist 'local-engine.exe'
+          $workflow = Join-Path $dist 'workflow_api.json'
+          $enginePresent = Test-Path $engine -PathType Leaf
+          $workflowPresent = Test-Path $workflow -PathType Leaf
+          $status = if ($enginePresent -and $workflowPresent) { 'FILES_PRESENT_UNTESTED' } else { 'UNAVAILABLE' }
+          $lines = @(
+            "Local AI status: $status"
+            "local-engine.exe present: $enginePresent"
+            "workflow_api.json present: $workflowPresent"
+            'FILES_PRESENT_UNTESTED does not imply a working AI model.'
+            'The local AI backend and model are not bundled by this workflow unless explicitly supplied.'
+          )
+          $lines | Set-Content -Path (Join-Path $dist 'LOCAL_AI_STATUS.txt') -Encoding UTF8
+          $lines | ForEach-Object { Write-Host $_ }
+          if (!$enginePresent -or !$workflowPresent) {
+            Write-Warning 'Local AI unavailable in this test artifact: compatible engine and workflow are not bundled. Core CAWForge Windows GUI can still be tested.'
+          }
       - name: Upload test ZIP (not a public release)
         uses: actions/upload-artifact@v4
         with:
