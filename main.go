@@ -647,8 +647,9 @@ func exportSignSheet(description string)(string,error){
  save:=func(path string,img image.Image)error{f,e:=os.Create(path);if e!=nil{return e};e=png.Encode(f,img);ce:=f.Close();if e!=nil{return e};return ce}
  if err=save(output,out);err!=nil{return "",err}
  for row:=0;row<4;row++{for col:=0;col<3;col++{
-  tile:=image.NewNRGBA(image.Rect(0,0,512,256))
-  draw.Draw(tile,tile.Bounds(),out,image.Point{X:col*512,Y:row*256},draw.Src)
+  // 512x512 square texture; preserve the rectangular sign aspect ratio by centering.
+  tile:=image.NewNRGBA(image.Rect(0,0,512,512))
+  draw.Draw(tile,image.Rect(0,128,512,384),out,image.Point{X:col*512,Y:row*256},draw.Src)
   if err=save(filepath.Join(dir,fmt.Sprintf("sign_%02d_%s.png",row*3+col+1,stem)),tile);err!=nil{return "",err}
  }}
  return output,nil
@@ -656,6 +657,7 @@ func exportSignSheet(description string)(string,error){
 func proceduralGraphic(kind,description string) (string,error) {
  desc:=strings.ToLower(description)
  width,height:=1024,1024
+ if kind=="Wrestler logo"{width,height=512,512}
  if kind=="Entrance background"{width,height=1280,720}
  if kind=="Wrestling sign"{width,height=1024,512}
  img:=image.NewRGBA(image.Rect(0,0,width,height))
@@ -809,7 +811,7 @@ func startGraphic(){
   var path string;var err error
    if kind=="Attire pattern" && strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""{path,err=generateAIAttire(prompt)}else{path,err=proceduralGraphic(kind,prompt)}
   matchMu.Lock()
-  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | Offline patterns are basic; cloud AI designs are concepts. Neither is a verified WWE 2K26 UV map."}
+  if err!=nil{graphicStatus="Generation failed: "+err.Error()}else{graphicStatus="Saved to: "+path+" | Logo export is 512x512 PNG. Offline graphics are basic patterns, not AI-designed custom logos."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
