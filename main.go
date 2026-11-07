@@ -975,7 +975,38 @@ func exportMorphSheetAsync(){
   postMessage.Call(hwnd,WM_EXPORT_DONE,0,0)
  }()
 }
-func sheet()string{var b strings.Builder;fmt.Fprintf(&b,"CAWFORGE STUDIO — FACE DEFORMATION SHEET\r\nCharacter: %s\r\nFace Template: %s%d\r\nReference Photo: %s\r\n\r\n",txt(20),gender,template,imagePath);for _,g:=range groups{fmt.Fprintf(&b,"[%s]\r\n",g.name);for _,s:=range g.items{fmt.Fprintf(&b,"%s: %d\r\n",s,values[g.name+" / "+s])};b.WriteString("\r\n")};b.WriteString("NOTE: These numbers are automatically generated IMAGE-BASED ESTIMATES, NOT validated WWE 2K26 slider calibration. Inspect in-game.\r\n");return b.String()}
+// Canonical WWE 2K26 morph-sheet headings; no guessed slider numbers.
+var morphSheetSections=[]struct{name string;items []string}{
+ {"Head",[]string{"Head Width","Head Height","Head Depth"}},
+ {"Ears Top",[]string{"Offset","Height","Alignment"}},
+ {"Ears",[]string{"Ears Width","Ears Height","Vertical Stretch","Placement Low/High","Placement Forward/Back"}},
+ {"Earlobes",[]string{"Lobe Detachment","Lobe Length","Lobe Alignment"}},
+ {"Forehead Upper",[]string{"Forehead Upper Size"}},
+ {"Forehead",[]string{"Forehead Size"}},
+ {"Eyebrows",[]string{"Eyebrow Length","Eyebrow Depth","Eyebrow Corner Height Left","Eyebrow Corner Height Right","Eyebrow Outer Height Left","Eyebrow Outer Height Right"}},
+ {"Eyes",[]string{"Eye Length","Eye Socket Depth","Eye Corner Length","Eye Corner Height","Eye Outer Length","Eye Outer Height"}},
+ {"Nose",[]string{"Nose Width","Nose Height","Nose Depth"}},
+ {"Nose Bridge",[]string{"Nose Bridge Width","Nose Bridge Height","Nose Bridge Depth"}},
+ {"Nose Tip",[]string{"Nose Tip Width","Tip Pointed or Rounded","Nose Tip Length","Tip Height"}},
+ {"Nostrils",[]string{"Left Nostril Width","Left Nostril Height","Left Nostril Depth","Right Nostril Width","Right Nostril Height","Right Nostril Depth"}},
+ {"Philtrum",[]string{"Philtrum Width","Philtrum Depth"}},
+ {"Mouth",[]string{"Mouth Horizontal Length","Mouth Fullness","Mouth Depth","Left Mouth Corner Length","Right Mouth Corner Length","Left Mouth Corner Height","Right Mouth Corner Height"}},
+ {"Cheekbones",[]string{"Upper Cheekbone","Middle Cheekbone","Lower Cheekbone"}},
+ {"Cheeks",[]string{"Cheek Fullness","Cheek Height"}},
+ {"Jawline",[]string{"Middle Jaw Fullness","Lower Jaw Height","Lower Jaw Depth","Rear Jaw Fullness","Lower Jaw Fullness","Lower Jaw Length"}},
+ {"Chin",[]string{"Chin Width","Chin Height","Chin Forward/Back","Chin Vertical Placement"}},
+ {"Parietal Region",[]string{"Parietal Region Size"}},
+}
+func sheet()string{
+ var b strings.Builder
+ fmt.Fprintf(&b,"## %s\r\n\r\n### Face Template\r\n- Face Template: %s%d\r\n\r\n",txt(20),gender,template)
+ for _,g:=range morphSheetSections{
+  fmt.Fprintf(&b,"### %s\r\n",g.name)
+  for _,item:=range g.items{fmt.Fprintf(&b,"- %s:\r\n",item)}
+  b.WriteString("\r\n")
+ }
+ return b.String()
+}
 func updateSheet(){set(30,sheet())}
 func scheduleSheetUpdate(){
  // Debounce expensive full morph-sheet rebuilds during trackbar dragging.
