@@ -598,11 +598,47 @@ func segmentRenderBackground(path string)(string,error){
  err=png.Encode(f,result);closeErr:=f.Close();if err!=nil{return "",err};if closeErr!=nil{return "",closeErr}
  return out,nil
 }
+// Lifelike rendering uses an actual optional image-editing worker. No image
+// enhancement is claimed when the worker is absent.
+func generateLifelikeRender(source string,realism int)(string,error){
+ exe,err:=os.Executable();if err!=nil{return "",err}
+ helper:=filepath.Join(filepath.Dir(exe),"render-enhancer.exe")
+ if info,statErr:=os.Stat(helper);statErr!=nil||info.IsDir(){return "",fmt.Errorf("Lifelike mode requires render-enhancer.exe and its compatible image model beside CAWForge; source unchanged")}
+ if realism<0||realism>100{return "",fmt.Errorf("realism must be 0-100")}
+ name:=strings.TrimSuffix(filepath.Base(source),filepath.Ext(source))
+ out:=filepath.Join(filepath.Dir(source),name+"_lifelike_"+strconv.Itoa(realism)+".png")
+ if _,err:=os.Stat(out);err==nil{return "",fmt.Errorf("output already exists: %s (original untouched)",out)}
+ ctx,cancel:=context.WithTimeout(context.Background(),10*time.Minute);defer cancel()
+ cmd:=exec.CommandContext(ctx,helper,"--input",source,"--output",out,"--realism",strconv.Itoa(realism),"--preserve-identity","--transparent")
+ logs,err:=cmd.CombinedOutput()
+ if err!=nil{os.Remove(out);return "",fmt.Errorf("render enhancement failed: %v: %s",err,strings.TrimSpace(string(logs)))}
+ f,err:=os.Open(out);if err!=nil{return "",fmt.Errorf("enhancer did not write PNG: %w",err)}
+ img,err:=png.Decode(f);f.Close()
+ if err!=nil{os.Remove(out);return "",fmt.Errorf("enhancer output is invalid PNG: %w",err)}
+ b:=img.Bounds();if b.Dx()<512||b.Dy()<512{os.Remove(out);return "",fmt.Errorf("enhanced image is too small")}
+ hasAlpha:=false
+ for y:=b.Min.Y;y<b.Max.Y&&!hasAlpha;y+=maxInt(1,b.Dy()/50){for x:=b.Min.X;x<b.Max.X;x+=maxInt(1,b.Dx()/50){_,_,_,a:=img.At(x,y).RGBA();if a<65535{hasAlpha=true;break}}}
+ if !hasAlpha{os.Remove(out);return "",fmt.Errorf("enhancer did not provide transparency")}
+ return out,nil
+}
 func startRenderCutout(){
  if renderImagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
  if renderBusy{return}
  mode,_,_:=send.Call(ctrls[325],CB_GETCURSEL,0,0)
- if mode==1{set(322,"AI Promotional Render requires an image-generation backend; not available in this build. No image was changed.");return}
+ if mode==1{
+  realism:=65
+  if ctrls[327]!=0{v,_,_:=send.Call(ctrls[327],TBM_GETPOS,0,0);realism=int(v)}
+  renderBusy=true
+  set(322,fmt.Sprintf("Lifelike render requested (%d%% realism); preserving source...",realism))
+  source:=renderImagePath
+  go func(){
+   out,err:=generateLifelikeRender(source,realism)
+   matchMu.Lock()
+   if err!=nil{renderStatus="Lifelike render unavailable: "+err.Error()}else{renderStatus="Lifelike promotional PNG: "+out+" | Review face, logos, glasses and attire against original."}
+   matchMu.Unlock();postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
+  }()
+  return
+ }
  renderBusy=true
  set(322,"Processing CAW screenshot: "+filepath.Base(renderImagePath)+" (original-pixel cutout, no generated patterns)...")
  path:=renderImagePath
@@ -1059,7 +1095,7 @@ func switchTab(n int){
  for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
  for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219,366}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312,367,368,369,370,371}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
- for _,id:=range []int{321,322,323,324,325,326}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
+ for _,id:=range []int{321,322,323,324,325,326,327}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
  for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
  for _,id:=range []int{351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,372}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
 }
@@ -1791,7 +1827,7 @@ func main(){
  ctl("STATIC","Seam test needs calibrated WWE UV pairs; uncalibrated images are preserved unchanged.",30,580,1000,65,371,0);
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
- ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","AI Promotional Render (not configured)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background + Export PNG",30,275,380,42,323,0);
+ ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","Lifelike Promotional Render (requires AI engine)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background / Generate Render",30,275,380,42,323,0);ctl("STATIC","Lifelike realism (0 game / 100 photo)",30,326,320,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,65);
  ctl("STATIC","Import a screenshot first. Complex screenshots require render-segmenter.exe (local AI helper) beside the app. The cutout preserves original RGB pixels. Promotional AI is not configured.",30,315,1000,100,322,0);
  ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
  ctl("STATIC","Superstar name",30,180,200,25,336,0);ctl("EDIT","",240,175,420,30,331,WS_BORDER);
