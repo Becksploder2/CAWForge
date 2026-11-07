@@ -630,9 +630,10 @@ const WM_RENDER_DONE=0x8029
 // Use prompt: sheet:C:\\path\\to\\sheet.png . No artwork is synthesized or altered.
 func exportSignSheet(description string)(string,error){
  source:=strings.TrimSpace(description)
- if strings.HasPrefix(strings.ToLower(source),"sheet:"){source=strings.TrimSpace(source[6:])}
- source=strings.Trim(source,"\"")
- f,err:=os.Open(source);if err!=nil{return "",fmt.Errorf("enter sheet:<full path to a 3x4 PNG or JPG>: %w",err)}
+ if !strings.HasPrefix(strings.ToLower(source),"sheet:"){return "",fmt.Errorf("Sign Export splits an EXISTING 3x4 image sheet; it does not generate signs from text yet. Select a 3x4 PNG/JPG and enter sheet:C:\\path\\to\\signs.png. Your description was not treated as a generation prompt.")}
+ source=strings.Trim(strings.TrimSpace(source[6:]),"\"")
+ if source==""{return "",fmt.Errorf("missing sheet path: enter sheet:C:\\path\\to\\signs.png")}
+ f,err:=os.Open(source);if err!=nil{return "",fmt.Errorf("cannot open 3x4 sign sheet %q: %w",source,err)}
  defer f.Close()
  src,_,err:=image.Decode(f);if err!=nil{return "",err}
  bounds:=src.Bounds();w,h:=bounds.Dx(),bounds.Dy()
