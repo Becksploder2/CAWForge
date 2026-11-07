@@ -784,6 +784,53 @@ func generatePlacementTestAtlas(description string)(string,error){
 
 // The initial seam test deliberately refuses to invent UV adjacency. It validates
 // the imported image and writes a lossless copy for in-game baseline comparison.
+// Calibrated seam pairs are specified in source-image pixels. No guessed WWE UV coordinates.
+type calibratedSeamPoint struct { AX int `json:"ax"`; AY int `json:"ay"`; BX int `json:"bx"`; BY int `json:"by"` }
+type calibratedSeamEdge struct { Name string `json:"name"`; Width int `json:"width"`; Points []calibratedSeamPoint `json:"points"` }
+type calibratedSeamMap struct { Width int `json:"width"`; Height int `json:"height"`; Edges []calibratedSeamEdge `json:"edges"` }
+func stitchCalibratedSeams(src image.Image,configPath string)(image.Image,int,error){
+ data,err:=os.ReadFile(configPath);if err!=nil{return nil,0,err}
+ var mapping calibratedSeamMap
+ if err=json.Unmarshal(data,&mapping);err!=nil{return nil,0,fmt.Errorf("invalid seam mapping JSON: %w",err)}
+ b:=src.Bounds();w,h:=b.Dx(),b.Dy()
+ if mapping.Width!=w||mapping.Height!=h{return nil,0,fmt.Errorf("mapping expects %dx%d but texture is %dx%d",mapping.Width,mapping.Height,w,h)}
+ if len(mapping.Edges)==0{return nil,0,fmt.Errorf("mapping has no calibrated edges")}
+ out:=image.NewNRGBA(image.Rect(0,0,w,h));draw.Draw(out,out.Bounds(),src,b.Min,draw.Src)
+ original:=image.NewNRGBA(image.Rect(0,0,w,h));draw.Draw(original,original.Bounds(),src,b.Min,draw.Src)
+ touched:=make([]bool,w*h)
+ edgesDone:=0
+ for _,edge:=range mapping.Edges{
+  if len(edge.Points)<2{return nil,0,fmt.Errorf("seam %q requires at least two measured point pairs",edge.Name)}
+  if edge.Width<1||edge.Width>32{return nil,0,fmt.Errorf("seam %q feather width must be 1..32 pixels",edge.Name)}
+  for _,p:=range edge.Points{for _,xy:=range [][2]int{{p.AX,p.AY},{p.BX,p.BY}}{if xy[0]<0||xy[0]>=w||xy[1]<0||xy[1]>=h{return nil,0,fmt.Errorf("seam %q has point outside texture",edge.Name)}}}
+  for i:=1;i<len(edge.Points);i++{
+   a,c:=edge.Points[i-1],edge.Points[i]
+   steps:=int(math.Max(math.Hypot(float64(c.AX-a.AX),float64(c.AY-a.AY)),math.Hypot(float64(c.BX-a.BX),float64(c.BY-a.BY))))*2
+   if steps<1{steps=1}
+   for step:=0;step<=steps;step++{
+    t:=float64(step)/float64(steps)
+    ax:=int(math.Round(float64(a.AX)+float64(c.AX-a.AX)*t));ay:=int(math.Round(float64(a.AY)+float64(c.AY-a.AY)*t))
+    bx:=int(math.Round(float64(a.BX)+float64(c.BX-a.BX)*t));by:=int(math.Round(float64(a.BY)+float64(c.BY-a.BY)*t))
+    ca:=original.NRGBAAt(ax,ay);cb:=original.NRGBAAt(bx,by)
+    if ca.A==0||cb.A==0{continue} // preserve transparent artwork
+    avg:=color.NRGBA{R:uint8((int(ca.R)+int(cb.R))/2),G:uint8((int(ca.G)+int(cb.G))/2),B:uint8((int(ca.B)+int(cb.B))/2),A:uint8((int(ca.A)+int(cb.A))/2)}
+    for _,center:=range [][2]int{{ax,ay},{bx,by}}{
+     for dy:=-edge.Width;dy<=edge.Width;dy++{for dx:=-edge.Width;dx<=edge.Width;dx++{
+      x,y:=center[0]+dx,center[1]+dy;if x<0||x>=w||y<0||y>=h{continue}
+      distance:=math.Hypot(float64(dx),float64(dy));if distance>float64(edge.Width){continue}
+      index:=y*w+x;if touched[index]{continue}
+      old:=original.NRGBAAt(x,y);if old.A==0{continue}
+      factor:=1-distance/float64(edge.Width)
+      blend:=func(v,target uint8)uint8{return uint8(math.Round(float64(v)*(1-factor)+float64(target)*factor))}
+      out.SetNRGBA(x,y,color.NRGBA{R:blend(old.R,avg.R),G:blend(old.G,avg.G),B:blend(old.B,avg.B),A:old.A})
+     }}
+    }
+   }
+  }
+  edgesDone++
+ }
+ return out,edgesDone,nil
+}
 func startImportedSeamTest(){
  source:=strings.Trim(strings.TrimSpace(txt(370)),"\"")
  if source==""{set(371,"Import an attire PNG first.");return}
@@ -798,8 +845,20 @@ func startImportedSeamTest(){
   err=os.MkdirAll(dir,0755)
   out:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(source),filepath.Ext(source))+"_SEAM_BASELINE.png")
   if err==nil{var file *os.File;file,err=os.Create(out);if err==nil{err=png.Encode(file,img);closeErr:=file.Close();if err==nil{err=closeErr}}}
+  status:="Imported attire saved as unchanged baseline: "+out+" | No calibrated seam map yet."
+  config:=strings.TrimSuffix(source,filepath.Ext(source))+"_seams.json"
+  if err==nil{if _,statErr:=os.Stat(config);statErr==nil{
+   var stitched image.Image;var count int
+   stitched,count,err=stitchCalibratedSeams(img,config)
+   if err==nil{
+    stitchedPath:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(source),filepath.Ext(source))+"_CALIBRATED_SEAMS.png")
+    var file *os.File;file,err=os.Create(stitchedPath)
+    if err==nil{err=png.Encode(file,stitched);closeErr:=file.Close();if err==nil{err=closeErr}}
+    if err==nil{out=stitchedPath;status=fmt.Sprintf("Calibrated seam export: %d mapped edges | %s",count,out)}
+   }
+  }}
   matchMu.Lock()
-  if err!=nil{graphicStatus="Seam baseline failed: "+err.Error()}else{lastGraphicPNG=out;graphicStatus="Imported attire saved as unchanged baseline: "+out+" | Auto-connect NOT applied: exact UV seam pairs must be calibrated."}
+  if err!=nil{graphicStatus="Seam export failed (original baseline preserved): "+err.Error()}else{lastGraphicPNG=out;graphicStatus=status}
   matchMu.Unlock();postMessage.Call(hwnd,WM_GRAPHIC_DONE,0,0)
  }()
 }
