@@ -716,6 +716,34 @@ func proceduralGraphic(kind,description string) (string,error) {
 }
 // generateAIAttire uses the OpenAI Images API. No credentials are stored in
 // the app; set OPENAI_API_KEY in the user's environment before launching.
+// Optional local attire generator contract. The helper must be a real installed
+// inference engine; CAWForge does not silently substitute a colored grid.
+func localAttireEngine()string{
+ exe,err:=os.Executable();if err!=nil{return ""}
+ path:=filepath.Join(filepath.Dir(exe),"attire-engine.exe")
+ if info,err:=os.Stat(path);err==nil&&!info.IsDir(){return path}
+ return ""
+}
+func generateLocalAIAttire(description string)(string,error){
+ engine:=localAttireEngine()
+ if engine==""{return "",fmt.Errorf("attire-engine.exe is not installed")}
+ home,err:=os.UserHomeDir();if err!=nil{return "",err}
+ dir:=filepath.Join(home,"Documents","CAWForge","AIAttire")
+ if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
+ stamp:=strconv.FormatInt(time.Now().UnixNano(),10)
+ for _,piece:=range []string{"top","tights","waistband"}{
+  out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
+  ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
+  cmd:=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)
+  output,runErr:=cmd.CombinedOutput();cancel()
+  if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s: %v: %s",piece,runErr,strings.TrimSpace(string(output)))}
+  file,openErr:=os.Open(out);if openErr!=nil{return "",fmt.Errorf("engine did not create %s: %w",out,openErr)}
+  imageData,decodeErr:=png.Decode(file);file.Close()
+  if decodeErr!=nil{return "",fmt.Errorf("engine output for %s is not a valid PNG: %w",piece,decodeErr)}
+  if imageData.Bounds().Dx()<512||imageData.Bounds().Dy()<512{return "",fmt.Errorf("engine output for %s is smaller than 512 pixels",piece)}
+ }
+ return dir,nil
+}
 func generateAIAttire(description string)(string,error){
  key:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
  if key==""{return "",fmt.Errorf("AI attire requires OPENAI_API_KEY. Offline patterns cannot generate outfits")}
@@ -877,14 +905,17 @@ func startGraphic(){
   return
  }
  if kind=="Attire pattern"{
-  if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{
-   set(306,"Attire artwork requires an image generation engine (OPENAI_API_KEY not set). The old colored UV grid was only a placement diagnostic. No fake texture exported.")
+  local:=localAttireEngine()!=""
+  cloud:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""
+  if !local&&!cloud{
+   set(306,"No attire image engine installed. For EXISTING artwork, use Import Existing Attire PNG and Export Seam Baseline; no API key needed. New AI artwork needs attire-engine.exe or OPENAI_API_KEY.")
    return
   }
   graphicBusy=true
-  set(306,"Generating top, tights and waistband artwork concepts (not yet WWE 2K26 UV-mapped)...")
+  if local{set(306,"Generating 3 local AI attire concept panels...")}else{set(306,"Generating 3 cloud AI attire concept panels...")}
   go func(){
-   path,err:=generateAIAttire(prompt)
+   var path string;var err error
+   if local{path,err=generateLocalAIAttire(prompt)}else{path,err=generateAIAttire(prompt)}
    matchMu.Lock()
    if err!=nil{graphicStatus="Attire artwork generation failed: "+err.Error()}else{graphicStatus="Three attire ARTWORK CONCEPTS saved in: "+path+" | Not yet game-ready UV textures; exact UV mapping requires a real atlas."}
    matchMu.Unlock()
