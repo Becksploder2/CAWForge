@@ -144,13 +144,13 @@ func rosterSave()error{
  name:=strings.TrimSpace(txt(331));if name==""{return fmt.Errorf("enter a wrestler name")}
  a,e:=rosterRead();if e!=nil{return e}
  v:=RosterEntry{Name:name,Picbase:strings.TrimSpace(txt(332)),Alignment:strings.TrimSpace(txt(333)),Group:strings.TrimSpace(txt(342))}
- found:=false;for i:=range a{if strings.EqualFold(a[i].Name,name){v.Mugshot=a[i].Mugshot;a[i]=v;found=true;break}}
+ found:=false;for i:=range a{if strings.EqualFold(a[i].Name,name)||(rosterEditing!=""&&strings.EqualFold(a[i].Name,rosterEditing)){v.Mugshot=a[i].Mugshot;a[i]=v;found=true;break}}
  if !found{a=append(a,v)}
  sort.Slice(a,func(i,j int)bool{return strings.ToLower(a[i].Name)<strings.ToLower(a[j].Name)})
  p,e:=rosterPath();if e!=nil{return e};if e=os.MkdirAll(filepath.Dir(p),0755);e!=nil{return e}
  b,e:=json.MarshalIndent(a,"","  ");if e!=nil{return e}
  tmp:=p+".tmp";if e=os.WriteFile(tmp,b,0600);e!=nil{return e}
- if e=os.Rename(tmp,p);e!=nil{os.Remove(tmp);return e};return rosterRefresh()
+ if e=os.Rename(tmp,p);e!=nil{os.Remove(tmp);return e};rosterEditing=name;return rosterRefresh()
 }
 var rosterPage int
 var rosterEditing string
@@ -1924,17 +1924,17 @@ func main(){
  ctl("STATIC","Group / faction",30,330,200,25,334,0);ctl("EDIT","",240,325,420,30,342,WS_BORDER);
  ctl("BUTTON","Save / Update",30,385,230,40,339,0);ctl("BUTTON","Load by name",280,385,230,40,340,0);
  ctl("STATIC","Select a saved wrestler to view their details, or enter a name and click Load.",30,445,960,35,341,0);
- ctl("STATIC","Browse saved roster:",30,590,190,26,0,0);
- ctl("COMBOBOX","",220,585,420,260,343,CBS_DROPDOWNLIST|WS_BORDER);
- ctl("BUTTON","View Selected",660,585,180,35,344,0);
- ctl("BUTTON","Refresh Roster",855,585,180,35,346,0);
- ctl("STATIC","0 wrestlers saved locally",30,635,300,30,345,0);
- ctl("BUTTON","Edit CAW",30,675,170,32,391,0);
- ctl("BUTTON","Add / Change Mugshot",215,675,240,32,392,0);
+ ctl("STATIC","Browse saved roster:",30,620,190,26,0,0);
+ ctl("COMBOBOX","",220,615,420,260,343,CBS_DROPDOWNLIST|WS_BORDER);
+ ctl("BUTTON","View Selected",660,615,180,35,344,0);
+ ctl("BUTTON","Refresh Roster",855,615,180,35,346,0);
+ ctl("STATIC","0 wrestlers saved locally",30,655,300,25,345,0);
+ ctl("BUTTON","Edit CAW",30,690,170,32,391,0);
+ ctl("BUTTON","Add / Change Mugshot",215,690,240,32,392,0);
  for i:=0;i<4;i++{x:=30+i*265;ctl("STATIC","",x,485,115,110,380+i,SS_BITMAP|WS_BORDER);ctl("BUTTON","(empty)",x+120,520,140,42,384+i,0)}
- ctl("BUTTON","Previous",540,675,130,32,388,0);
- ctl("STATIC","Gallery page 1 / 1",685,680,170,25,389,0);
- ctl("BUTTON","Next",865,675,130,32,390,0);
+ ctl("BUTTON","Previous",540,690,130,32,388,0);
+ ctl("STATIC","Gallery page 1 / 1",685,695,170,25,389,0);
+ ctl("BUTTON","Next",865,690,130,32,390,0);
  ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
  ctl("BUTTON","Auto Seam Connect: true",30,515,235,34,308,0);
  ctl("BUTTON","Top sides: true",275,515,195,34,309,0);
