@@ -711,6 +711,22 @@ func segmentRenderBackground(path string)(string,error){
 // enhancement is claimed when the worker is absent.
 func generateLifelikeRender(source string,realism int)(string,error){
  exe,err:=os.Executable();if err!=nil{return "",err}
+ dir:=filepath.Dir(exe)
+ sdScript:=filepath.Join(dir,"sd_backend.py")
+ if info,e:=os.Stat(sdScript);e==nil&&!info.IsDir(){
+  if realism<0||realism>100{return "",fmt.Errorf("realism must be 0-100")}
+  home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
+  outdir:=filepath.Join(home,"Documents","CAWForge","Renders")
+  if e=os.MkdirAll(outdir,0755);e!=nil{return "",e}
+  out:=filepath.Join(outdir,fmt.Sprintf("CAW_SD_Render_%d.png",time.Now().UnixNano()))
+  ctx,cancel:=context.WithTimeout(context.Background(),20*time.Minute);defer cancel()
+  cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),sdScript,"--mode","render","--input",source,"--output",out,"--realism",strconv.Itoa(realism))
+  logs,e:=cmd.CombinedOutput();if e!=nil{return "",fmt.Errorf("Stable Diffusion render failed: %v: %s",e,strings.TrimSpace(string(logs)))}
+  f,e:=os.Open(out);if e!=nil{return "",fmt.Errorf("render file missing: %w",e)}
+  cfg,format,e:=image.DecodeConfig(f);f.Close()
+  if e!=nil||format!="png"||cfg.Width<512||cfg.Height<512{return "",fmt.Errorf("Stable Diffusion render output is invalid")}
+  return out,nil
+ }
  helper:=filepath.Join(filepath.Dir(exe),"render-enhancer.exe")
  if info,statErr:=os.Stat(helper);statErr!=nil||info.IsDir(){return "",fmt.Errorf("Lifelike mode requires render-enhancer.exe and its compatible image model beside CAWForge; source unchanged")}
  if realism<0||realism>100{return "",fmt.Errorf("realism must be 0-100")}
@@ -743,7 +759,7 @@ func startRenderCutout(){
   go func(){
    out,err:=generateLifelikeRender(source,realism)
    matchMu.Lock()
-   if err!=nil{renderStatus="Lifelike render unavailable: "+err.Error()}else{renderStatus="Lifelike promotional PNG: "+out+" | Review face, logos, glasses and attire against original."}
+   if err!=nil{renderStatus="Lifelike render unavailable: "+err.Error()}else{renderStatus="AI promotional PNG (background not transparent): "+out+" | Verify identity, logos, glasses and attire; use Cutout mode for transparency."}
    matchMu.Unlock();postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
   }()
   return
