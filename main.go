@@ -486,93 +486,10 @@ func stableDiffusionEnv(dir string)[]string{
  return env
 }
 func runAITexture(){
- if aiBusy{return}
- if imagePath==""{set(215,"Import a reference photo before running local AI.");return}
- exe,err:=os.Executable();if err!=nil{set(215,"Cannot locate application: "+err.Error());return}
- dir:=filepath.Dir(exe)
- workflow:=strings.TrimSpace(txt(211))
- if workflow==""{workflow=filepath.Join(dir,"workflow_api.json")}
- tmpl:=strings.TrimSpace(txt(23))
- if tmpl==""{tmpl=gender+strconv.Itoa(template)}
- photo:=imagePath
- aiBusy=true
- set(215,"Checking local AI dependencies in background...")
- go func(){
-  var result,outputPath string
-  engine:=filepath.Join(dir,"local-engine.exe")
-  sdScript:=filepath.Join(dir,"sd_backend.py")
-  if _,e:=os.Stat(sdScript);e==nil{
-   home,_:=os.UserHomeDir();outdir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
-   if e=os.MkdirAll(outdir,0755);e!=nil{result="Cannot create face output folder: "+e.Error()}else{
-    out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
-    ctx,cancel:=context.WithTimeout(context.Background(),15*time.Minute)
-    args:=[]string{sdScript,"--mode","face","--input",photo,"--output",out}
-    landmarks:=filepath.Join(dir,"face_template_landmarks.json")
-    if info,e:=os.Stat(landmarks);e==nil&&!info.IsDir(){
-     args=append(args,"--template",tmpl,"--landmarks",landmarks)
-    }
-    cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),args...)
-  cmd.Env=stableDiffusionEnv(dir)
-    data,e:=cmd.CombinedOutput();cancel()
-    if e!=nil{result="Stable Diffusion face generation failed: "+e.Error()+" "+string(data)}else{
-     f,openErr:=os.Open(out);if openErr!=nil{result="Stable Diffusion did not create output: "+openErr.Error()}else{
-      cfg,format,decodeErr:=image.DecodeConfig(f);f.Close()
-      if decodeErr!=nil||format!="png"||cfg.Width!=820||cfg.Height!=820{result="Stable Diffusion produced invalid face PNG"}else{result="Saved Stable Diffusion 820 x 820 face: "+out+" (template fit only when calibrated landmark JSON is installed; verify in game)";outputPath=out}
-     }
-    }
-   }
-  }else{
-
-  if _,err:=os.Stat(engine);err!=nil{
-   result="Local AI is unavailable: local-engine.exe is missing from "+dir+". This build does not include a local inference backend. Rebuild with a compatible engine and model; OpenAI mode separately requires OPENAI_API_KEY."
-  }else if _,err:=os.Stat(filepath.Join(dir,"models","face-model.safetensors"));err!=nil{
-   result="Local AI model missing: models\\\\face-model.safetensors. A real compatible model must be bundled; the executable alone cannot generate a face."
-  }else if _,err:=os.Stat(workflow);err!=nil{
-   result="Local AI workflow is missing: "+workflow+". The engine and its compatible model/workflow must both be packaged; no local AI inference was performed."
-  }else{
-   home,_:=os.UserHomeDir()
-   if home==""{home=os.TempDir()}
-   outdir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
-   if err:=os.MkdirAll(outdir,0755);err!=nil{
-    result="Cannot create AI output folder: "+err.Error()
-   }else{
-    out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
-    ctx,cancel:=context.WithTimeout(context.Background(),3*time.Minute)
-    defer cancel()
-    cmd:=exec.CommandContext(ctx,engine,photo,tmpl,workflow,out)
-    output,err:=cmd.CombinedOutput()
-    if ctx.Err()==context.DeadlineExceeded{
-     result="Local AI timed out after 3 minutes. The worker was stopped; the main window remains usable."
-    }else if err!=nil{
-     detail:=string(output);if len(detail)>600{detail=detail[:600]}
-     result="Local AI failed: "+err.Error()+" "+detail
-    }else{
-     // A worker exit code of zero is not proof that a valid face texture exists.
-     file,openErr:=os.Open(out)
-     if openErr!=nil{
-      result="Local AI returned success but did not create a face texture: "+openErr.Error()
-     }else{
-      config,format,decodeErr:=image.DecodeConfig(file)
-      closeErr:=file.Close()
-      if decodeErr!=nil{
-       result="Local AI produced an unreadable image: "+decodeErr.Error()
-      }else if closeErr!=nil{
-       result="Local AI output could not be closed: "+closeErr.Error()
-      }else if format!="png"||config.Width!=820||config.Height!=820{
-       result=fmt.Sprintf("Local AI output rejected: expected 820 x 820 PNG, got %d x %d %s.",config.Width,config.Height,format)
-      }else{
-       result="Saved verified 820 x 820 PNG: "+out+" (visual quality not yet verified)"
-       outputPath=out
-      }
-     }
-    }
-   }
-  }
-  }
-  matchMu.Lock();aiResult=result;aiOutput=outputPath;matchMu.Unlock()
-  postMessage.Call(hwnd,WM_AI_DONE,0,0)
- }()
+ set(215,"Face extraction is not yet implemented. Stable Diffusion portrait generation has been disabled to protect facial accuracy. See Face Texture Guide.")
+ alert("CAWForge Face Texture: Stable Diffusion portrait generation is disabled because it changes facial features and leaves hair, ears and accessories. Use Face Texture Guide for preparation. A calibrated face-extraction pipeline is still required.")
 }
+
 func minInt(a,b int)int{if a<b{return a};return b}
 
 func traceTexture(event string){
@@ -617,25 +534,8 @@ func generateEditedFaceTexture(photo,out string)error{
  return png.Encode(output,dst)
 }
 func startTexture(){
- if imagePath==""{alert("Import a reference photograph first.");return}
- if textureBusy{return}
- mode,_,_:=send.Call(ctrls[219],CB_GETCURSEL,0,0)
- if mode==0{runAITexture();return}
- if strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))==""{set(203,"OpenAI mode needs OPENAI_API_KEY. Select Local AI to use the installed local engine.");return}
- textureBusy=true
- set(203,"AI editing reference into a hairless, neutral 820 x 820 face texture...")
- photo:=imagePath
- go func(){
-  home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
-  dir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
-  err:=os.MkdirAll(dir,0755)
-  out:=filepath.Join(dir,strings.TrimSuffix(filepath.Base(photo),filepath.Ext(photo))+"_face_texture_820.png")
-  if err==nil{err=generateEditedFaceTexture(photo,out)}
-  matchMu.Lock()
-  if err!=nil{faceTextureStatus="Face texture failed: "+err.Error();faceTexturePreviewPath=""}else{lastFacePNG=out;faceTextureStatus="AI face texture saved: "+out+" (inspect before importing)";faceTexturePreviewPath=out}
-  matchMu.Unlock()
-  postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
- }()
+ set(203,"Face texture extraction is not yet available. The previous generator produced portraits, not usable UV textures. See Face Texture Guide.")
+ alert("This generator is temporarily disabled: it cannot reliably produce a hairless, template-aligned WWE 2K26 face texture. Use Face Texture Guide for correct input requirements.")
 }
 
 var seamAuto=true
@@ -1751,7 +1651,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==368:attireImportPicker=true;beginPicker(false);case id==369:startImportedSeamTest();case id==365:beginTextureSave(5);case id==372:singletMode=!singletMode;if singletMode{set(372,"Mode: Singlet (click for Full Body)")}else{set(372,"Mode: Full Body (click for Singlet)")};case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id>=384&&id<=387:if e:=rosterGallerySelect(id-384);e!=nil{set(341,e.Error())};case id==388:rosterPage--;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==390:rosterPage++;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==391:if txt(331)==""{set(341,"Select a CAW first")}else{rosterEditing=txt(331);set(341,"Editing "+rosterEditing+" — change fields then Save / Update.")};case id==392:rosterMugshotPicker=true;beginPicker(false);case id==344:if e:=rosterViewSelected();e!=nil{set(341,"View failed: "+e.Error())};case id==346:if e:=rosterRefresh();e!=nil{set(341,"Refresh failed: "+e.Error())};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==368:attireImportPicker=true;beginPicker(false);case id==369:startImportedSeamTest();case id==365:beginTextureSave(5);case id==372:singletMode=!singletMode;if singletMode{set(372,"Mode: Singlet (click for Full Body)")}else{set(372,"Mode: Full Body (click for Singlet)")};case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id>=384&&id<=387:if e:=rosterGallerySelect(id-384);e!=nil{set(341,e.Error())};case id==388:rosterPage--;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==390:rosterPage++;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==391:if txt(331)==""{set(341,"Select a CAW first")}else{rosterEditing=txt(331);set(341,"Editing "+rosterEditing+" — change fields then Save / Update.")};case id==392:rosterMugshotPicker=true;beginPicker(false);case id==344:if e:=rosterViewSelected();e!=nil{set(341,"View failed: "+e.Error())};case id==346:if e:=rosterRefresh();e!=nil{set(341,"Refresh failed: "+e.Error())};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==220:alert("FACE TEXTURE GUIDE\\n\\n1. Use a high-resolution straight-on photo, eyes open, neutral mouth, even light. Avoid filters, harsh shadows and hair over the face.\\n\\n2. Choose the correct in-game face template and prepare the face morph BEFORE applying a texture.\\n\\n3. The required output is an 820 x 820 flat UV face texture: no hair, ears, jewelry, clothing or background, with skin blended around the edges.\\n\\n4. CAWForge cannot currently extract this accurately. Both old portrait-generation buttons are disabled until face segmentation and calibrated template alignment are implemented.\\n\\n5. Do not import the old Tiffany-style portrait into WWE 2K26; it is not a valid face UV texture.");case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -1949,7 +1849,7 @@ func main(){
  ctl("BUTTON","Mode: Full Body (click for Singlet)",30,545,500,38,372,0);
  ctl("STATIC","Definition adjusts contrast in existing skin shading only; it cannot create new muscles or identify body parts. No DDS conversion.",30,460,1020,85,354,0);
  uiBuildTab=1;ctl("BUTTON","Import Face Photo",30,295,340,38,217,0);
- ctl("BUTTON","Generate 820 x 820 Face Texture",30,345,340,38,201,0);
+ ctl("BUTTON","Face Texture (not yet ready)",30,345,340,38,201,0);
  ctl("BUTTON","Save Face As...",30,490,340,38,366,0);
  ctl("STATIC","Texture AI engine:",30,395,160,28,218,0);
  ctl("COMBOBOX","",195,392,205,120,219,CBS_DROPDOWNLIST);
@@ -1969,8 +1869,9 @@ func main(){
  for _,v:=range []string{"Skin-tone background","Transparent background","Seamless skin fill"}{send.Call(ctrls[213],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(v))))}
  send.Call(ctrls[213],CB_SETCURSEL,0,0)
  ctl("EDIT","",30,435,370,45,214,WS_BORDER|ES_MULTILINE);
- ctl("STATIC","AI status: run the bundled installer to configure Stable Diffusion.",30,590,980,40,215,0);
- ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
+ ctl("STATIC","AI status: run the bundled installer to configure Stable Diffusion.",30,590,980,40,215,0)
+ ctl("BUTTON","Face Texture Guide",425,540,320,38,220,0);;
+ ctl("BUTTON","Local Face AI (not yet ready)",30,535,340,38,216,0);
  uiBuildTab=2;ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
  ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
  ctl("STATIC","2. Describe the selected graphic (colors, words, logos and layout):",30,240,900,26,303,0);
