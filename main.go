@@ -778,39 +778,23 @@ func generateLifelikeRender(source string,realism int)(string,error){
  if !hasAlpha{os.Remove(out);return "",fmt.Errorf("enhancer did not provide transparency")}
  return out,nil
 }
+// Faithful Render always preserves the original RGB pixels and generates transparency.
+// Never route the default renderer through Stable Diffusion: it changes identity and attire.
 func startRenderCutout(){
- if renderImagePath==""{alert("Import a CAW screenshot using Import CAW Screenshot first.");return}
+ if renderImagePath==""{alert("Import a CAW screenshot first.");return}
  if renderBusy{return}
- mode,_,_:=send.Call(ctrls[325],CB_GETCURSEL,0,0)
- if mode==1{
-  realism:=65
-  if ctrls[327]!=0{v,_,_:=send.Call(ctrls[327],TBM_GETPOS,0,0);realism=int(v)}
-  renderBusy=true
-  set(322,fmt.Sprintf("Lifelike render requested (%d%% realism); preserving source...",realism))
-  source:=renderImagePath
-  go func(){
-   out,err:=generateLifelikeRender(source,realism)
-   matchMu.Lock()
-   if err!=nil{renderStatus="Lifelike render unavailable: "+err.Error()}else{renderStatus="AI promotional PNG (background not transparent): "+out+" | Verify identity, logos, glasses and attire; use Cutout mode for transparency."}
-   matchMu.Unlock();postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
-  }()
-  return
- }
  renderBusy=true
- set(322,"Processing CAW screenshot: "+filepath.Base(renderImagePath)+" (original-pixel cutout, no generated patterns)...")
+ set(322,"Removing background automatically; preserving the original face, gear and colors...")
  path:=renderImagePath
  go func(){
   output,err:=segmentRenderBackground(path)
-  method:="local segmentation helper"
-  // The bundled helper may be absent in development builds. For a plain,
-  // contrasting CAS backdrop, offer a conservative pixel-preserving fallback.
-  // Never label this color flood-fill as AI segmentation.
+  method:="segmentation mask"
   if err!=nil && strings.Contains(err.Error(),"render-segmenter.exe beside CAWForge"){
-   method="plain-background color mask (not AI)"
+   method="plain-background mask"
    output,err=removeRenderBackground(path)
   }
   matchMu.Lock()
-  if err!=nil{renderStatus="Cutout unavailable: "+err.Error()}else{renderStatus="Original-pixel transparent PNG ("+method+"): "+output+" (inspect hair and clothing edges)"}
+  if err!=nil{renderStatus="Faithful cutout unavailable: "+err.Error()+" (original screenshot unchanged)"}else{renderStatus="Faithful transparent PNG ("+method+"): "+output+" | Inspect hair and gear edges."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
@@ -1657,7 +1641,7 @@ case WM_PHOTO_VALIDATED:
  photoImportMu.Lock();path,err:=photoImportPath,photoImportError;photoImportMu.Unlock()
  if err!=""{set(25,"Photo import failed: "+err);if currentTab==1{set(203,"Photo import failed: "+err)};importTrace("photo validated UI handler exited with error");return 0}
  imagePath=path
- if pickerSourceTab==3||currentTab==3{renderImagePath=path;set(322,"CAW screenshot selected: "+filepath.Base(path)+". Original cutout only removes the background; it never creates stripes.");return 0}
+ if pickerSourceTab==3||currentTab==3{renderImagePath=path;set(322,"CAW screenshot imported: "+filepath.Base(path)+". Starting faithful background removal...");startRenderCutout();return 0}
  set(25,"Photo loaded: "+filepath.Base(path))
  importTrace("photo loaded status set")
  if currentTab==1 {
@@ -1988,8 +1972,8 @@ func main(){
  ctl("STATIC","Seam test needs calibrated WWE UV pairs; uncalibrated images are preserved unchanged.",30,580,1000,65,371,0);
  uiBuildTab=3;ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
- ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","Lifelike Promotional Render (requires AI engine)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background / Generate Render",30,275,380,42,323,0);ctl("STATIC","Lifelike realism (0 game / 100 photo)",30,326,320,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,65);
- ctl("STATIC","Import a screenshot first. Original cutout preserves RGB pixels; complex backgrounds may need render-segmenter.exe.",30,420,1000,50,322,0);
+ ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Faithful Render (automatic transparent PNG)","Faithful Render (preserve original pixels)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Retry Background Removal",30,275,380,42,323,0);ctl("STATIC","Faithful render: no AI face or attire regeneration",30,326,500,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,65);
+ ctl("STATIC","Import a screenshot to remove its background automatically. Original RGB pixels are preserved.",30,420,1000,50,322,0);
  uiBuildTab=4;ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
  ctl("STATIC","Superstar name",30,180,200,25,336,0);ctl("EDIT","",240,175,420,30,331,WS_BORDER);
  ctl("STATIC","Real picbase / identity",30,230,200,25,337,0);ctl("EDIT","",240,225,420,30,332,WS_BORDER);
