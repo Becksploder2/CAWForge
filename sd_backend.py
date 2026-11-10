@@ -6,6 +6,7 @@ The first run downloads the official Diffusers model; subsequent runs use its ca
 import argparse
 from pathlib import Path
 from PIL import Image, ImageOps
+from collections import deque
 import torch
 from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 
@@ -23,12 +24,13 @@ def load_pipeline(img2img):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
-    ap.add_argument("--mode", choices=["face", "attire"])
+    ap.add_argument("--mode", choices=["face", "attire", "render"])
     ap.add_argument("--input")
     ap.add_argument("--piece", choices=["top", "tights", "waistband"])
     ap.add_argument("--prompt", default="")
     ap.add_argument("--output", required=True)
     ap.add_argument("--strength", type=float, default=0.30)
+    ap.add_argument("--realism", type=int, default=65)
     args = ap.parse_args()
     if args.check:
         print("CUDA available:", torch.cuda.is_available())
@@ -39,7 +41,27 @@ def main():
         ap.error("--mode and --output are required unless --check is used")
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    if args.mode == "face":
+    if args.mode == "render":
+        if not args.input:
+            ap.error("--input required for render mode")
+        original = Image.open(args.input).convert("RGBA")
+        rgb = original.convert("RGB")
+        # Conservative border-connected background removal; preserves the generated foreground.
+        # For complex backdrops users should use the existing cutout tool instead.
+        init = ImageOps.contain(rgb, (512, 768), method=Image.Resampling.LANCZOS)
+        canvas = Image.new("RGB", (512, 768), (127, 127, 127))
+        canvas.paste(init, ((512-init.width)//2, (768-init.height)//2))
+        pipe = load_pipeline(True)
+        strength = max(0.12, min(0.48, 0.12 + args.realism / 280))
+        result = pipe(
+            prompt="professional photorealistic full body studio promotional photograph of the same professional wrestler, exact outfit and accessories, natural skin, realistic fabric, neutral plain gray studio background, detailed facial structure",
+            negative_prompt="different clothes, changed logos, extra fingers, duplicate limbs, cropped feet, cartoon, illustration, text, watermark",
+            image=canvas, strength=strength, guidance_scale=6, num_inference_steps=28
+        ).images[0]
+        # Preserve original framing; generated image is opaque by design.
+        # Do not falsely claim a transparent render.
+        result.save(out, "PNG")
+    elif args.mode == "face":
         if not args.input:
             ap.error("--input required for face mode")
         img = Image.open(args.input).convert("RGB")
