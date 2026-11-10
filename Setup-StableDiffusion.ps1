@@ -56,6 +56,8 @@ Assert-Success 'pip upgrade'
 Assert-Success 'CUDA PyTorch installation'
 & $py -m pip install --no-cache-dir -r (Join-Path $PSScriptRoot 'sd_requirements.txt')
 Assert-Success 'AI dependencies installation'
+& $py -m pip install --no-cache-dir 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2'
+Assert-Success 'Background removal dependencies installation'
 & $py (Join-Path $PSScriptRoot 'sd_backend.py') --check
 Assert-Success 'GPU readiness check'
 if (-not $SkipModelDownload) {
