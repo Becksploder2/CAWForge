@@ -4,6 +4,8 @@ or: python sd_backend.py --mode attire --piece top --prompt "navy gold honeycomb
 The first run downloads the official Diffusers model; subsequent runs use its cache.
 """
 import argparse
+import json
+import numpy as np
 from pathlib import Path
 from PIL import Image, ImageOps
 from collections import deque
@@ -21,6 +23,41 @@ def load_pipeline(img2img):
     pipe.enable_vae_slicing()
     return pipe
 
+def fit_template(image, template_id, landmarks_file):
+    """Warp source facial landmarks to calibrated template positions.
+
+    JSON: {"templates":{"F10":{"target":[[x,y],...]}},
+           "source":[[x,y],...]} with at least three corresponding
+    points, all coordinates in 820x820 pixels. Missing calibration is an
+    explicit error, never silently treated as a fitted result.
+    """
+    if not landmarks_file:
+        raise RuntimeError("Template fitting requires --landmarks JSON with calibrated source and target points")
+    with open(landmarks_file, encoding="utf-8") as f:
+        spec = json.load(f)
+    source = np.asarray(spec.get("source", []), dtype=np.float32)
+    target = np.asarray(spec.get("templates", {}).get(template_id, {}).get("target", []), dtype=np.float32)
+    if source.ndim != 2 or source.shape[1:] != (2,) or len(source) < 3 or source.shape != target.shape:
+        raise RuntimeError(f"Template {template_id} has no valid corresponding landmark calibration")
+    if not (np.isfinite(source).all() and np.isfinite(target).all()):
+        raise RuntimeError("Landmarks contain nonfinite values")
+    if np.any(source < 0) or np.any(source > 819) or np.any(target < 0) or np.any(target > 819):
+        raise RuntimeError("Landmarks must be within the 820x820 canvas")
+    # Least-squares affine mapping, source -> target, then invert for PIL.
+    a = np.column_stack((source, np.ones(len(source), dtype=np.float32)))
+    params, _, rank, _ = np.linalg.lstsq(a, target, rcond=None)
+    if rank < 3:
+        raise RuntimeError("Landmarks are collinear; cannot calibrate template")
+    forward = np.eye(3)
+    forward[:2, :] = params.T
+    inv = np.linalg.inv(forward)
+    residual = np.linalg.norm(a @ params - target, axis=1)
+    if float(np.max(residual)) > 28:
+        raise RuntimeError(f"Template landmarks cannot be aligned by a single affine transform (max error {float(np.max(residual)):.1f}px)")
+    return image.transform((820, 820), Image.Transform.AFFINE,
+        (inv[0,0], inv[0,1], inv[0,2], inv[1,0], inv[1,1], inv[1,2]),
+        resample=Image.Resampling.BICUBIC)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
@@ -31,6 +68,8 @@ def main():
     ap.add_argument("--output", required=True)
     ap.add_argument("--strength", type=float, default=0.30)
     ap.add_argument("--realism", type=int, default=65)
+    ap.add_argument("--template", default="")
+    ap.add_argument("--landmarks", default="")
     args = ap.parse_args()
     if args.check:
         print("CUDA available:", torch.cuda.is_available())
@@ -72,7 +111,11 @@ def main():
                   "no portrait framing, seamless skin edges, " + args.prompt)
         result = pipe(prompt=prompt, negative_prompt="hair, ears, smile, teeth, portrait, shadows, frame, cartoon, text", image=img,
                       strength=max(0.05, min(args.strength, 0.8)), guidance_scale=6.5, num_inference_steps=25).images[0]
-        result.resize((820, 820), Image.Resampling.LANCZOS).save(out, "PNG")
+        result = result.resize((820, 820), Image.Resampling.LANCZOS)
+        # Explicit, calibrated landmark fitting. No guessed WWE template coordinates.
+        if args.template:
+            result = fit_template(result, args.template, args.landmarks)
+        result.save(out, "PNG")
     else:
         if not args.piece:
             ap.error("--piece required for attire mode")
