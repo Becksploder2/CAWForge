@@ -470,6 +470,23 @@ func runAITexture(){
  go func(){
   var result,outputPath string
   engine:=filepath.Join(dir,"local-engine.exe")
+  sdScript:=filepath.Join(dir,"sd_backend.py")
+  if _,e:=os.Stat(sdScript);e==nil{
+   home,_:=os.UserHomeDir();outdir:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
+   if e=os.MkdirAll(outdir,0755);e!=nil{result="Cannot create face output folder: "+e.Error()}else{
+    out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
+    ctx,cancel:=context.WithTimeout(context.Background(),15*time.Minute)
+    cmd:=exec.CommandContext(ctx,"python",sdScript,"--mode","face","--input",photo,"--output",out)
+    data,e:=cmd.CombinedOutput();cancel()
+    if e!=nil{result="Stable Diffusion face generation failed: "+e.Error()+" "+string(data)}else{
+     f,openErr:=os.Open(out);if openErr!=nil{result="Stable Diffusion did not create output: "+openErr.Error()}else{
+      cfg,format,decodeErr:=image.DecodeConfig(f);f.Close()
+      if decodeErr!=nil||format!="png"||cfg.Width!=820||cfg.Height!=820{result="Stable Diffusion produced invalid face PNG"}else{result="Saved Stable Diffusion 820 x 820 face: "+out+" (alignment and identity not verified)";outputPath=out}
+     }
+    }
+   }
+  }else{
+
   if _,err:=os.Stat(engine);err!=nil{
    result="Local AI is unavailable: local-engine.exe is missing from "+dir+". This build does not include a local inference backend. Rebuild with a compatible engine and model; OpenAI mode separately requires OPENAI_API_KEY."
   }else if _,err:=os.Stat(filepath.Join(dir,"models","face-model.safetensors"));err!=nil{
@@ -514,6 +531,7 @@ func runAITexture(){
      }
     }
    }
+  }
   }
   matchMu.Lock();aiResult=result;aiOutput=outputPath;matchMu.Unlock()
   postMessage.Call(hwnd,WM_AI_DONE,0,0)
@@ -848,7 +866,9 @@ func localAttireEngine()string{
 }
 func generateLocalAIAttire(description string)(string,error){
  engine:=localAttireEngine()
- if engine==""{return "",fmt.Errorf("attire-engine.exe is not installed")}
+ exe,_:=os.Executable();sdScript:=filepath.Join(filepath.Dir(exe),"sd_backend.py")
+ _,sdErr:=os.Stat(sdScript)
+ if engine==""&&sdErr!=nil{return "",fmt.Errorf("install sd_backend.py with Python dependencies or attire-engine.exe")}
  home,err:=os.UserHomeDir();if err!=nil{return "",err}
  dir:=filepath.Join(home,"Documents","CAWForge","AIAttire")
  if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
@@ -856,7 +876,8 @@ func generateLocalAIAttire(description string)(string,error){
  for _,piece:=range []string{"top","tights","waistband"}{
   out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
   ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
-  cmd:=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)
+  var cmd *exec.Cmd
+  if sdErr==nil{cmd=exec.CommandContext(ctx,"python",sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out)}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
   output,runErr:=cmd.CombinedOutput();cancel()
   if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s: %v: %s",piece,runErr,strings.TrimSpace(string(output)))}
   file,openErr:=os.Open(out);if openErr!=nil{return "",fmt.Errorf("engine did not create %s: %w",out,openErr)}
