@@ -455,10 +455,35 @@ func applyTexturePreview(){
 }
 
 
+type aiRuntimeConfig struct {
+ Python string `json:"python"`
+ AIHome string `json:"ai_home"`
+ HFHome string `json:"hf_home"`
+ Temp string `json:"temp"`
+ TorchHome string `json:"torch_home"`
+}
 func stableDiffusionPython(dir string)string{
+ data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
+ if err==nil{
+  var cfg aiRuntimeConfig
+  if json.Unmarshal(data,&cfg)==nil && cfg.Python!=""{
+   if info,e:=os.Stat(cfg.Python);e==nil&&!info.IsDir(){return cfg.Python}
+  }
+ }
  venv:=filepath.Join(dir,".venv","Scripts","python.exe")
  if info,err:=os.Stat(venv);err==nil&&!info.IsDir(){return venv}
  return "python"
+}
+func stableDiffusionEnv(dir string)[]string{
+ env:=os.Environ()
+ data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
+ if err!=nil{return env}
+ var cfg aiRuntimeConfig
+ if json.Unmarshal(data,&cfg)!=nil{return env}
+ for _,pair:=range [][2]string{{"HF_HOME",cfg.HFHome},{"TORCH_HOME",cfg.TorchHome},{"TEMP",cfg.Temp},{"TMP",cfg.Temp}}{
+  if pair[1]!=""{env=append(env,pair[0]+"="+pair[1])}
+ }
+ return env
 }
 func runAITexture(){
  if aiBusy{return}
@@ -487,6 +512,7 @@ func runAITexture(){
      args=append(args,"--template",tmpl,"--landmarks",landmarks)
     }
     cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),args...)
+  cmd.Env=stableDiffusionEnv(dir)
     data,e:=cmd.CombinedOutput();cancel()
     if e!=nil{result="Stable Diffusion face generation failed: "+e.Error()+" "+string(data)}else{
      f,openErr:=os.Open(out);if openErr!=nil{result="Stable Diffusion did not create output: "+openErr.Error()}else{
@@ -726,6 +752,7 @@ func generateLifelikeRender(source string,realism int)(string,error){
   out:=filepath.Join(outdir,fmt.Sprintf("CAW_SD_Render_%d.png",time.Now().UnixNano()))
   ctx,cancel:=context.WithTimeout(context.Background(),20*time.Minute);defer cancel()
   cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),sdScript,"--mode","render","--input",source,"--output",out,"--realism",strconv.Itoa(realism))
+  cmd.Env=stableDiffusionEnv(dir)
   logs,e:=cmd.CombinedOutput();if e!=nil{return "",fmt.Errorf("Stable Diffusion render failed: %v: %s",e,strings.TrimSpace(string(logs)))}
   f,e:=os.Open(out);if e!=nil{return "",fmt.Errorf("render file missing: %w",e)}
   cfg,format,e:=image.DecodeConfig(f);f.Close()
