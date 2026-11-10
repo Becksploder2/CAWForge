@@ -930,7 +930,7 @@ func generateLocalAIAttire(description string)(string,error){
   out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
   ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
   var cmd *exec.Cmd
-  if sdErr==nil{cmd=exec.CommandContext(ctx,stableDiffusionPython(filepath.Dir(exe)),sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out)}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
+  if sdErr==nil{cmd=exec.CommandContext(ctx,stableDiffusionPython(filepath.Dir(exe)),sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out);cmd.Env=stableDiffusionEnv(filepath.Dir(exe))}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
   output,runErr:=cmd.CombinedOutput();cancel()
   if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s: %v: %s",piece,runErr,strings.TrimSpace(string(output)))}
   file,openErr:=os.Open(out);if openErr!=nil{return "",fmt.Errorf("engine did not create %s: %w",out,openErr)}
