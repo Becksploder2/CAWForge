@@ -455,6 +455,11 @@ func applyTexturePreview(){
 }
 
 
+func stableDiffusionPython(dir string)string{
+ venv:=filepath.Join(dir,".venv","Scripts","python.exe")
+ if info,err:=os.Stat(venv);err==nil&&!info.IsDir(){return venv}
+ return "python"
+}
 func runAITexture(){
  if aiBusy{return}
  if imagePath==""{set(215,"Import a reference photo before running local AI.");return}
@@ -476,7 +481,7 @@ func runAITexture(){
    if e=os.MkdirAll(outdir,0755);e!=nil{result="Cannot create face output folder: "+e.Error()}else{
     out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
     ctx,cancel:=context.WithTimeout(context.Background(),15*time.Minute)
-    cmd:=exec.CommandContext(ctx,"python",sdScript,"--mode","face","--input",photo,"--output",out)
+    cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),sdScript,"--mode","face","--input",photo,"--output",out)
     data,e:=cmd.CombinedOutput();cancel()
     if e!=nil{result="Stable Diffusion face generation failed: "+e.Error()+" "+string(data)}else{
      f,openErr:=os.Open(out);if openErr!=nil{result="Stable Diffusion did not create output: "+openErr.Error()}else{
@@ -877,7 +882,7 @@ func generateLocalAIAttire(description string)(string,error){
   out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
   ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
   var cmd *exec.Cmd
-  if sdErr==nil{cmd=exec.CommandContext(ctx,"python",sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out)}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
+  if sdErr==nil{cmd=exec.CommandContext(ctx,stableDiffusionPython(filepath.Dir(exe)),sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out)}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
   output,runErr:=cmd.CombinedOutput();cancel()
   if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s: %v: %s",piece,runErr,strings.TrimSpace(string(output)))}
   file,openErr:=os.Open(out);if openErr!=nil{return "",fmt.Errorf("engine did not create %s: %w",out,openErr)}
