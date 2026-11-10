@@ -137,14 +137,14 @@ var previewBitmap uintptr
 var previewBmpPath string
 var textureBusy bool
 var currentTab=0
-type RosterEntry struct {Name string `json:"name"`;Picbase string `json:"picbase"`;Alignment string `json:"alignment"`;Group string `json:"group"`}
+type RosterEntry struct {Name string `json:"name"`;Picbase string `json:"picbase"`;Alignment string `json:"alignment"`;Group string `json:"group"`;Mugshot string `json:"mugshot,omitempty"`}
 func rosterPath()(string,error){home,e:=os.UserHomeDir();if e!=nil{return "",e};return filepath.Join(home,"Documents","CAWForge","roster.json"),nil}
 func rosterRead()([]RosterEntry,error){p,e:=rosterPath();if e!=nil{return nil,e};b,e:=os.ReadFile(p);if os.IsNotExist(e){return []RosterEntry{},nil};if e!=nil{return nil,e};var a []RosterEntry;e=json.Unmarshal(b,&a);if e==nil{sort.Slice(a,func(i,j int)bool{return strings.ToLower(a[i].Name)<strings.ToLower(a[j].Name)})};return a,e}
 func rosterSave()error{
  name:=strings.TrimSpace(txt(331));if name==""{return fmt.Errorf("enter a wrestler name")}
  a,e:=rosterRead();if e!=nil{return e}
- v:=RosterEntry{name,strings.TrimSpace(txt(332)),strings.TrimSpace(txt(333)),strings.TrimSpace(txt(342))}
- found:=false;for i:=range a{if strings.EqualFold(a[i].Name,name){a[i]=v;found=true;break}}
+ v:=RosterEntry{Name:name,Picbase:strings.TrimSpace(txt(332)),Alignment:strings.TrimSpace(txt(333)),Group:strings.TrimSpace(txt(342))}
+ found:=false;for i:=range a{if strings.EqualFold(a[i].Name,name){v.Mugshot=a[i].Mugshot;a[i]=v;found=true;break}}
  if !found{a=append(a,v)}
  sort.Slice(a,func(i,j int)bool{return strings.ToLower(a[i].Name)<strings.ToLower(a[j].Name)})
  p,e:=rosterPath();if e!=nil{return e};if e=os.MkdirAll(filepath.Dir(p),0755);e!=nil{return e}
@@ -152,12 +152,79 @@ func rosterSave()error{
  tmp:=p+".tmp";if e=os.WriteFile(tmp,b,0600);e!=nil{return e}
  if e=os.Rename(tmp,p);e!=nil{os.Remove(tmp);return e};return rosterRefresh()
 }
+var rosterPage int
+var rosterEditing string
+var rosterMugshotPicker bool
+var rosterPhotoBitmaps [4]uintptr
+var rosterPhotoTemp [4]string
+func rosterPhotoPreview(slot int,path string){
+ if slot<0||slot>=4{return}
+ if rosterPhotoBitmaps[slot]!=0{syscall.NewLazyDLL("gdi32.dll").NewProc("DeleteObject").Call(rosterPhotoBitmaps[slot]);rosterPhotoBitmaps[slot]=0}
+ if rosterPhotoTemp[slot]!=""{os.Remove(rosterPhotoTemp[slot]);rosterPhotoTemp[slot]=""}
+ if path==""{send.Call(ctrls[380+slot],STM_SETIMAGE,IMAGE_BITMAP,0);return}
+ f,e:=os.Open(path);if e!=nil{return};im,_,e:=image.Decode(f);f.Close();if e!=nil{return}
+ const width,height=115,110
+ row:=((width*3+3)/4)*4;data:=make([]byte,54+row*height)
+ copy(data[:2],[]byte{'B','M'})
+ put:=func(i int,v uint32){data[i]=byte(v);data[i+1]=byte(v>>8);data[i+2]=byte(v>>16);data[i+3]=byte(v>>24)}
+ put(2,uint32(len(data)));put(10,54);put(14,40);put(18,width);put(22,height);data[26]=1;data[28]=24
+ b:=im.Bounds();side:=b.Dx();if b.Dy()<side{side=b.Dy()}
+ left:=b.Min.X+(b.Dx()-side)/2;top:=b.Min.Y+(b.Dy()-side)/2
+ for y:=0;y<height;y++{for x:=0;x<width;x++{
+  sx:=left+x*side/width;sy:=top+(height-1-y)*side/height
+  rr,gg,bb,_:=im.At(sx,sy).RGBA();i:=54+y*row+x*3;data[i]=byte(bb>>8);data[i+1]=byte(gg>>8);data[i+2]=byte(rr>>8)
+ }}
+ p:=filepath.Join(os.TempDir(),fmt.Sprintf("cawforge_roster_%d_%d.bmp",slot,time.Now().UnixNano()))
+ if os.WriteFile(p,data,0600)!=nil{return}
+ bmp,_,_:=u.NewProc("LoadImageW").Call(0,uintptr(unsafe.Pointer(ptr(p))),IMAGE_BITMAP,0,0,LR_LOADFROMFILE)
+ if bmp==0{os.Remove(p);return}
+ rosterPhotoBitmaps[slot]=bmp;rosterPhotoTemp[slot]=p
+ send.Call(ctrls[380+slot],STM_SETIMAGE,IMAGE_BITMAP,bmp)
+}
+func rosterGalleryRefresh(a []RosterEntry){
+ if len(a)==0{rosterPage=0}
+ if rosterPage<0{rosterPage=0}
+ if rosterPage>0&&rosterPage*4>=len(a){rosterPage=(len(a)-1)/4}
+ for i:=0;i<4;i++{
+  j:=rosterPage*4+i
+  if j<len(a){set(384+i,a[j].Name);rosterPhotoPreview(i,a[j].Mugshot)}else{set(384+i,"(empty)");rosterPhotoPreview(i,"")}
+ }
+ total:=(len(a)+3)/4;if total<1{total=1}
+ set(389,fmt.Sprintf("Gallery page %d / %d",rosterPage+1,total))
+}
+func rosterGallerySelect(slot int)error{
+ a,e:=rosterRead();if e!=nil{return e}
+ j:=rosterPage*4+slot;if j<0||j>=len(a){return fmt.Errorf("no wrestler in this slot")}
+ v:=a[j];set(331,v.Name);set(332,v.Picbase);set(333,v.Alignment);set(342,v.Group)
+ rosterEditing=v.Name
+ set(341,"Selected "+v.Name+". Click Edit CAW to change details.")
+ return nil
+}
+func rosterImportMugshot(path string)error{
+ name:=strings.TrimSpace(txt(331));if name==""{return fmt.Errorf("select or save a wrestler first")}
+ f,e:=os.Open(path);if e!=nil{return e};_,_,e=image.DecodeConfig(f);f.Close();if e!=nil{return fmt.Errorf("invalid image: %w",e)}
+ a,e:=rosterRead();if e!=nil{return e}
+ idx:=-1;for i:=range a{if strings.EqualFold(a[i].Name,name){idx=i;break}}
+ if idx<0{return fmt.Errorf("save wrestler before adding mugshot")}
+ home,e:=os.UserHomeDir();if e!=nil{return e}
+ dir:=filepath.Join(home,"Documents","CAWForge","RosterPhotos");if e=os.MkdirAll(dir,0755);e!=nil{return e}
+ safe:=strings.Map(func(r rune)rune{if strings.ContainsRune(`\\/:*?"<>|`,r){return '_'};return r},name)
+ dest:=filepath.Join(dir,safe+strings.ToLower(filepath.Ext(path)))
+ data,e:=os.ReadFile(path);if e!=nil{return e}
+ if e=os.WriteFile(dest,data,0600);e!=nil{return e}
+ a[idx].Mugshot=dest
+ p,e:=rosterPath();if e!=nil{return e}
+ b,e:=json.MarshalIndent(a,"","  ");if e!=nil{return e}
+ if e=os.WriteFile(p,b,0600);e!=nil{return e}
+ return rosterRefresh()
+}
 func rosterRefresh()error{
  a,e:=rosterRead();if e!=nil{return e}
  box:=ctrls[343];if box==0{return nil}
  send.Call(box,0x014B,0,0) // CB_RESETCONTENT
  for _,v:=range a{send.Call(box,0x0143,0,uintptr(unsafe.Pointer(ptr(v.Name))))} // CB_ADDSTRING
  set(345,fmt.Sprintf("%d wrestlers saved locally",len(a)))
+ rosterGalleryRefresh(a)
  return nil
 }
 func rosterViewSelected()error{
@@ -168,7 +235,7 @@ func rosterViewSelected()error{
  if int(index)>=len(a){return fmt.Errorf("roster changed; click Refresh Roster")}
  v:=a[index]
  set(331,v.Name);set(332,v.Picbase);set(333,v.Alignment);set(342,v.Group)
- set(341,"Viewing "+v.Name+" — edit fields and Save / Update to change this entry.")
+ rosterEditing=v.Name;set(341,"Viewing "+v.Name+" — click Edit CAW to change details.")
  return nil
 }
 func rosterLoad()error{
@@ -1116,7 +1183,7 @@ func switchTab(n int){
  for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219,366}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
  for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312,367,368,369,370,371}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
  for _,id:=range []int{321,322,323,324,325,326,327}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
- for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
+ for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,380,381,382,383,384,385,386,387,388,389,390,391,392}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
  for _,id:=range []int{351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,372}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
 }
 
@@ -1564,6 +1631,7 @@ case WM_CAL_DONE:
 case WM_PICKER_DONE:
  importTrace("picker completed; UI handler entered")
  pickerMu.Lock();path,err:=pickerResult,pickerErr;pickerMu.Unlock();pickerBusy=false
+ if rosterMugshotPicker{rosterMugshotPicker=false;if err!=""{set(341,"Mugshot picker failed: "+err)}else if path!=""{if e:=rosterImportMugshot(path);e!=nil{set(341,"Mugshot failed: "+e.Error())}else{set(341,"Mugshot saved for "+txt(331))}};return 0}
  if themePicker{themePicker=false;if err!=""{alert(err)}else if path!=""{themeCustomPath=path;themeIndex=6;send.Call(ctrls[401],CB_SETCURSEL,6,0);loadTheme()};return 0}
  if textureSaveSource!=""{
   source:=textureSaveSource;tab:=textureSaveTab;textureSaveSource=""
@@ -1611,7 +1679,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==368:attireImportPicker=true;beginPicker(false);case id==369:startImportedSeamTest();case id==365:beginTextureSave(5);case id==372:singletMode=!singletMode;if singletMode{set(372,"Mode: Singlet (click for Full Body)")}else{set(372,"Mode: Full Body (click for Singlet)")};case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id==344:if e:=rosterViewSelected();e!=nil{set(341,"View failed: "+e.Error())};case id==346:if e:=rosterRefresh();e!=nil{set(341,"Refresh failed: "+e.Error())};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==368:attireImportPicker=true;beginPicker(false);case id==369:startImportedSeamTest();case id==365:beginTextureSave(5);case id==372:singletMode=!singletMode;if singletMode{set(372,"Mode: Singlet (click for Full Body)")}else{set(372,"Mode: Full Body (click for Singlet)")};case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id>=384&&id<=387:if e:=rosterGallerySelect(id-384);e!=nil{set(341,e.Error())};case id==388:rosterPage--;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==390:rosterPage++;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==391:if txt(331)==""{set(341,"Select a CAW first")}else{rosterEditing=txt(331);set(341,"Editing "+rosterEditing+" — change fields then Save / Update.")};case id==392:rosterMugshotPicker=true;beginPicker(false);case id==344:if e:=rosterViewSelected();e!=nil{set(341,"View failed: "+e.Error())};case id==346:if e:=rosterRefresh();e!=nil{set(341,"Refresh failed: "+e.Error())};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==217:beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -1860,7 +1928,13 @@ func main(){
  ctl("COMBOBOX","",220,585,420,260,343,CBS_DROPDOWNLIST|WS_BORDER);
  ctl("BUTTON","View Selected",660,585,180,35,344,0);
  ctl("BUTTON","Refresh Roster",855,585,180,35,346,0);
- ctl("STATIC","0 wrestlers saved locally",30,635,700,30,345,0);
+ ctl("STATIC","0 wrestlers saved locally",30,635,300,30,345,0);
+ ctl("BUTTON","Edit CAW",30,675,170,32,391,0);
+ ctl("BUTTON","Add / Change Mugshot",215,675,240,32,392,0);
+ for i:=0;i<4;i++{x:=30+i*265;ctl("STATIC","",x,485,115,110,380+i,SS_BITMAP|WS_BORDER);ctl("BUTTON","(empty)",x+120,520,140,42,384+i,0)}
+ ctl("BUTTON","Previous",540,675,130,32,388,0);
+ ctl("STATIC","Gallery page 1 / 1",685,680,170,25,389,0);
+ ctl("BUTTON","Next",865,675,130,32,390,0);
  ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
  ctl("BUTTON","Auto Seam Connect: true",30,515,235,34,308,0);
  ctl("BUTTON","Top sides: true",275,515,195,34,309,0);
