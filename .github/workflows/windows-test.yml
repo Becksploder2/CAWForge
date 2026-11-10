@@ -8,6 +8,7 @@ on:
       - 'sd_backend.py'
       - 'sd_requirements.txt'
       - 'Setup-StableDiffusion.ps1'
+      - 'Install-CAWForge-AI.cmd'
       - 'go.mod'
       - 'go.sum'
       - 'assets/**'
@@ -73,7 +74,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
           if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
-          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json','sd_backend.py','sd_requirements.txt','Setup-StableDiffusion.ps1','face_template_landmarks.json')) {
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json','sd_backend.py','sd_requirements.txt','Setup-StableDiffusion.ps1','Install-CAWForge-AI.cmd','face_template_landmarks.json')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
           if (Test-Path models) { Copy-Item models dist/CAWForge/models -Recurse }
