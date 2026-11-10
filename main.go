@@ -466,7 +466,7 @@ func stableDiffusionPython(dir string)string{
  data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
  if err==nil{
   var cfg aiRuntimeConfig
-  if json.Unmarshal(data,&cfg)==nil && cfg.Python!=""{
+  if json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg)==nil && cfg.Python!=""{
    if info,e:=os.Stat(cfg.Python);e==nil&&!info.IsDir(){return cfg.Python}
   }
  }
@@ -479,7 +479,7 @@ func stableDiffusionEnv(dir string)[]string{
  data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
  if err!=nil{return env}
  var cfg aiRuntimeConfig
- if json.Unmarshal(data,&cfg)!=nil{return env}
+ if json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg)!=nil{return env}
  for _,pair:=range [][2]string{{"HF_HOME",cfg.HFHome},{"TORCH_HOME",cfg.TorchHome},{"TEMP",cfg.Temp},{"TMP",cfg.Temp}}{
   if pair[1]!=""{env=append(env,pair[0]+"="+pair[1])}
  }
