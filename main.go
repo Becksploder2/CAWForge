@@ -1049,6 +1049,7 @@ func startGraphic(){
  }
  if kind=="Attire pattern"{
   local:=localAttireEngine()!=""
+  if exe,e:=os.Executable();e==nil{if _,e=os.Stat(filepath.Join(filepath.Dir(exe),"sd_backend.py"));e==nil{local=true}}
   cloud:=strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))!=""
   if !local&&!cloud{
    set(306,"No attire image engine installed. For EXISTING artwork, use Import Existing Attire PNG and Export Seam Baseline; no API key needed. New AI artwork needs attire-engine.exe or OPENAI_API_KEY.")
