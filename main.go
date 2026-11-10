@@ -463,15 +463,22 @@ type aiRuntimeConfig struct {
  TorchHome string `json:"torch_home"`
 }
 func stableDiffusionPython(dir string)string{
- data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
+ configPath:=filepath.Join(dir,"ai-config.json")
+ data,err:=os.ReadFile(configPath)
  if err==nil{
   var cfg aiRuntimeConfig
-  if json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg)==nil && cfg.Python!=""{
-   if info,e:=os.Stat(cfg.Python);e==nil&&!info.IsDir(){return cfg.Python}
+  if e:=json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg);e!=nil{
+   return filepath.Join(dir,"CAWForge_AI_CONFIG_INVALID_"+strings.ReplaceAll(e.Error(),":","_"))
   }
+  if cfg.Python==""{return filepath.Join(dir,"CAWForge_AI_CONFIG_MISSING_PYTHON")}
+  if info,e:=os.Stat(cfg.Python);e==nil&&!info.IsDir(){return cfg.Python}
+  return cfg.Python // Explicit error from process launch; never fall back to stale C: Python.
  }
+ // Default to the external AI installation if present, even without config.
+ external:=filepath.Join("E:\\","CAWForge-AI",".venv","Scripts","python.exe")
+ if info,e:=os.Stat(external);e==nil&&!info.IsDir(){return external}
  venv:=filepath.Join(dir,".venv","Scripts","python.exe")
- if info,err:=os.Stat(venv);err==nil&&!info.IsDir(){return venv}
+ if info,e:=os.Stat(venv);e==nil&&!info.IsDir(){return venv}
  return "python"
 }
 func stableDiffusionEnv(dir string)[]string{
