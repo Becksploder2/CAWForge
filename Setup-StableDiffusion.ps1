@@ -63,5 +63,5 @@ if (-not $SkipModelDownload) {
   Assert-Success 'Stable Diffusion model download'
 }
 $config = @{ python = $py; ai_home = $AIHome; hf_home = $env:HF_HOME; temp = $env:TEMP; torch_home = $env:TORCH_HOME }
-$config | ConvertTo-Json | Set-Content -Path (Join-Path $PSScriptRoot 'ai-config.json') -Encoding UTF8
+[System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'ai-config.json'), ($config | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
 Write-Host 'CAWForge AI setup complete. Configuration saved in ai-config.json.' -ForegroundColor Green
