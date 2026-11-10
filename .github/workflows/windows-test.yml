@@ -5,7 +5,7 @@ on:
     branches: [main, feature/attire-auto-seam-connect]
     paths:
       - 'main.go'
-      - 'sd_backend.py render_cutout.py'
+      - 'sd_backend.py','render_cutout.py'
       - 'sd_requirements.txt'
       - 'Setup-StableDiffusion.ps1'
       - 'Install-CAWForge-AI.cmd'
