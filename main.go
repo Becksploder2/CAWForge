@@ -1246,26 +1246,24 @@ var lastFacePNG,lastBodyPNG,lastGraphicPNG string
 var textureSaveSource string
 var textureSaveTab int
 const WM_BODY_TEXTURE_DONE=0x8012
+// Track every native control, including labels without numeric IDs.
+// A control created for one workspace must never leak into another tab.
+var uiBuildTab = -1
+var uiTabControls = map[int][]uintptr{}
 func switchTab(n int){
  currentTab=n
- if n==4{if e:=rosterRefresh();e!=nil{set(341,"Roster list error: "+e.Error())}}
- // Native Windows tabs: show the controls belonging to the selected workspace.
- for _,id:=range []int{1,2,3,4,5,6,7,8,9,10,11,12,13,20,23,25,30,40,41,501,502,503,504,505,506}{
-  if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}
+ for tab,handles:=range uiTabControls{
+  visible:=uintptr(0)
+  if tab==n{visible=1}
+  for _,h:=range handles{u.NewProc("ShowWindow").Call(h,visible)}
  }
- for i:=0;i<len(groups);i++{if v:=ctrls[50+i];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}
- for i:=0;i<8;i++{for _,id:=range []int{100+i,110+i,120+i}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==0)))}}}
- for _,id:=range []int{201,203,204,205,206,208,209,210,211,212,213,214,215,216,217,218,219,366}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==1)))}}
- for _,id:=range []int{301,302,303,304,305,306,307,308,309,310,311,312,367,368,369,370,371}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==2)))}}
- for _,id:=range []int{321,322,323,324,325,326,327}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==3)))}}
- for _,id:=range []int{331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,380,381,382,383,384,385,386,387,388,389,390,391,392}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==4)))}}
- for _,id:=range []int{351,352,353,354,355,356,357,358,359,360,361,362,363,364,365,372}{if v:=ctrls[id];v!=0{u.NewProc("ShowWindow").Call(v,uintptr(boolInt(n==5)))}}
+ if n==4{if e:=rosterRefresh();e!=nil{set(341,"Roster list error: "+e.Error())}}
 }
 
 var values=map[string]int{}
 // All morph controls use the same editable canonical layout as the exported sheet.
 var groups=loadedMorphSheetSections()
-func ctl(class,title string,x,y,w,h,id int,style uint32)uintptr{v,_,_:=create.Call(0,uintptr(unsafe.Pointer(ptr(class))),uintptr(unsafe.Pointer(ptr(title))),uintptr(WS_CHILD|WS_VISIBLE|style),uintptr(x),uintptr(y),uintptr(w),uintptr(h),hwnd,uintptr(id),0,0);if id>0{ctrls[id]=v};return v}
+func ctl(class,title string,x,y,w,h,id int,style uint32)uintptr{v,_,_:=create.Call(0,uintptr(unsafe.Pointer(ptr(class))),uintptr(unsafe.Pointer(ptr(title))),uintptr(WS_CHILD|WS_VISIBLE|style),uintptr(x),uintptr(y),uintptr(w),uintptr(h),hwnd,uintptr(id),0,0);if id>0{ctrls[id]=v};if uiBuildTab>=0&&v!=0{uiTabControls[uiBuildTab]=append(uiTabControls[uiBuildTab],v)};return v}
 func txt(id int)string{if ctrls[id]==0{return ""};buf:=make([]uint16,2048);gettext.Call(ctrls[id],uintptr(unsafe.Pointer(&buf[0])),uintptr(len(buf)));return syscall.UTF16ToString(buf)}
 func set(id int,s string){if ctrls[id]==0{return};settext.Call(ctrls[id],uintptr(unsafe.Pointer(ptr(s))))}
 func alert(s string){msgbox.Call(hwnd,uintptr(unsafe.Pointer(ptr(s))),uintptr(unsafe.Pointer(ptr("CAWForge Studio"))),0)}
@@ -1926,8 +1924,8 @@ func main(){
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
  ctl("STATIC","CAWFORGE STUDIO",20,15,460,28,0,0);
- ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);ctl("STATIC","Character name",20,55,120,22,0,0);ctl("EDIT","New Superstar",145,50,245,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES",400,50,165,28,1,0);ctl("BUTTON","FEMALE TEMPLATES",575,50,175,28,2,0);ctl("COMBOBOX","",760,50,150,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",915,55,25,22,23,0)
- ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
+ ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);uiBuildTab=0;ctl("STATIC","Character name",20,55,120,22,0,0);ctl("EDIT","New Superstar",145,50,245,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES",400,50,165,28,1,0);ctl("BUTTON","FEMALE TEMPLATES",575,50,175,28,2,0);ctl("COMBOBOX","",760,50,150,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",915,55,25,22,23,0)
+ uiBuildTab=0;ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%7)*155,245+(i/7)*35,149,30,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
  ctl("STATIC","FACE COMPARISON PREVIEW",665,345,400,26,0,0);
@@ -1937,7 +1935,7 @@ func main(){
  ctl("STATIC","",865,398,185,150,502,SS_BITMAP|WS_BORDER);
  ctl("STATIC","Import a photo to compare it with the matched template.",665,550,410,34,504,0);
  ctl("EDIT","",665,625,410,51,30,WS_BORDER|ES_MULTILINE|ES_AUTOVSCROLL|WS_VSCROLL|ES_READONLY);drawGroup();
- ctl("STATIC","BODY TEXTURE STUDIO — Preserve approved WWE 2K26 UV atlas",30,105,950,30,351,0);
+ uiBuildTab=5;ctl("STATIC","BODY TEXTURE STUDIO — Preserve approved WWE 2K26 UV atlas",30,105,950,30,351,0);
  ctl("STATIC","Approved body UV atlas PNG path:",30,165,750,25,356,0);
  ctl("EDIT","",30,197,860,32,352,WS_BORDER);ctl("BUTTON","Browse...",905,197,145,32,358,0);
  ctl("STATIC","Face texture PNG path (skin-tone reference):",30,250,760,25,357,0);
@@ -1951,7 +1949,7 @@ func main(){
  ctl("BUTTON","Save Body As...",500,395,220,42,365,0);
  ctl("BUTTON","Mode: Full Body (click for Singlet)",30,545,500,38,372,0);
  ctl("STATIC","Definition adjusts contrast in existing skin shading only; it cannot create new muscles or identify body parts. No DDS conversion.",30,460,1020,85,354,0);
- ctl("BUTTON","Import Face Photo",30,295,340,38,217,0);
+ uiBuildTab=1;ctl("BUTTON","Import Face Photo",30,295,340,38,217,0);
  ctl("BUTTON","Generate 820 x 820 Face Texture",30,345,340,38,201,0);
  ctl("BUTTON","Save Face As...",30,490,340,38,366,0);
  ctl("STATIC","Texture AI engine:",30,395,160,28,218,0);
@@ -1974,7 +1972,7 @@ func main(){
  ctl("EDIT","",30,435,370,45,214,WS_BORDER|ES_MULTILINE);
  ctl("STATIC","AI status: run the bundled installer to configure Stable Diffusion.",30,590,980,40,215,0);
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
- ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
+ uiBuildTab=2;ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
  ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
  ctl("STATIC","2. Describe the selected graphic (colors, words, logos and layout):",30,240,900,26,303,0);
  ctl("COMBOBOX","",315,165,440,260,304,CBS_DROPDOWNLIST);
@@ -1988,11 +1986,11 @@ func main(){
  ctl("BUTTON","Export Seam Baseline (UV mapping needed)",370,485,400,38,369,0);
  ctl("EDIT","",30,535,850,30,370,WS_BORDER);
  ctl("STATIC","Seam test needs calibrated WWE UV pairs; uncalibrated images are preserved unchanged.",30,580,1000,65,371,0);
- ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
+ uiBuildTab=3;ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
  ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","Lifelike Promotional Render (requires AI engine)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background / Generate Render",30,275,380,42,323,0);ctl("STATIC","Lifelike realism (0 game / 100 photo)",30,326,320,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,65);
  ctl("STATIC","Import a screenshot first. Original cutout preserves RGB pixels; complex backgrounds may need render-segmenter.exe.",30,420,1000,50,322,0);
- ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
+ uiBuildTab=4;ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
  ctl("STATIC","Superstar name",30,180,200,25,336,0);ctl("EDIT","",240,175,420,30,331,WS_BORDER);
  ctl("STATIC","Real picbase / identity",30,230,200,25,337,0);ctl("EDIT","",240,225,420,30,332,WS_BORDER);
  ctl("STATIC","Alignment (Face/Heel/Tweener)",30,280,210,25,338,0);ctl("EDIT","Face",240,275,420,30,333,WS_BORDER);
@@ -2010,12 +2008,12 @@ func main(){
  ctl("BUTTON","Previous",540,690,130,32,388,0);
  ctl("STATIC","Gallery page 1 / 1",685,695,170,25,389,0);
  ctl("BUTTON","Next",865,690,130,32,390,0);
- ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
+ uiBuildTab=2;ctl("STATIC","AUTO SEAM CONNECT (attire patterns)",30,475,700,28,312,0);
  ctl("BUTTON","Auto Seam Connect: true",30,515,235,34,308,0);
  ctl("BUTTON","Top sides: true",275,515,195,34,309,0);
  ctl("BUTTON","Tights leg sides: true",480,515,225,34,310,0);
  ctl("BUTTON","Waistband: true",715,515,195,34,311,0);
- ctl("STATIC","Theme:",635,734,55,24,0,0)
+ uiBuildTab=-1;ctl("STATIC","Theme:",635,734,55,24,0,0)
  ctl("COMBOBOX","",690,730,260,190,401,CBS_DROPDOWNLIST)
  for _,label:=range []string{"Original Studio","WWE 2K22 (original if installed)","WWE 2K23 (original if installed)","WWE 2K24 (original if installed)","WWE 2K25 (original if installed)","WWE 2K26 (original if installed)","Custom Image"}{send.Call(ctrls[401],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(label))))}
  send.Call(ctrls[401],CB_SETCURSEL,uintptr(themeIndex),0)
