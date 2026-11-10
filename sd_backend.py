@@ -22,13 +22,21 @@ def load_pipeline(img2img):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", choices=["face", "attire"], required=True)
+    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--mode", choices=["face", "attire"])
     ap.add_argument("--input")
     ap.add_argument("--piece", choices=["top", "tights", "waistband"])
     ap.add_argument("--prompt", default="")
     ap.add_argument("--output", required=True)
     ap.add_argument("--strength", type=float, default=0.30)
     args = ap.parse_args()
+    if args.check:
+        print("CUDA available:", torch.cuda.is_available())
+        if not torch.cuda.is_available():
+            raise SystemExit("CUDA-enabled PyTorch or NVIDIA GPU unavailable")
+        return
+    if not args.mode or not args.output:
+        ap.error("--mode and --output are required unless --check is used")
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     if args.mode == "face":
