@@ -65,7 +65,7 @@ def main():
     ap.add_argument("--input")
     ap.add_argument("--piece", choices=["top", "tights", "waistband"])
     ap.add_argument("--prompt", default="")
-    ap.add_argument("--output", required=True)
+    ap.add_argument("--output")
     ap.add_argument("--strength", type=float, default=0.30)
     ap.add_argument("--realism", type=int, default=65)
     ap.add_argument("--template", default="")
