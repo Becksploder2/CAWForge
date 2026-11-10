@@ -1925,8 +1925,8 @@ func main(){
  // control, making the whole application appear blank/white.
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
- ctl("STATIC","CAWFORGE STUDIO  |  DESKTOP EDITION v0.9.32",20,15,565,28,0,0);
- ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);ctl("STATIC","Character name",20,55,140,22,0,0);ctl("EDIT","New Superstar",160,50,250,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES (M1-M20)",415,50,195,28,1,0);ctl("BUTTON","FEMALE TEMPLATES (F1-F20)",615,50,210,28,2,0);ctl("COMBOBOX","",835,50,130,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",975,50,90,28,23,0)
+ ctl("STATIC","CAWFORGE STUDIO",20,15,460,28,0,0);
+ ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);ctl("STATIC","Character name",20,55,120,22,0,0);ctl("EDIT","New Superstar",145,50,245,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES",400,50,165,28,1,0);ctl("BUTTON","FEMALE TEMPLATES",575,50,175,28,2,0);ctl("COMBOBOX","",760,50,150,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",915,55,25,22,23,0)
  ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%7)*155,245+(i/7)*35,149,30,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
@@ -1951,16 +1951,16 @@ func main(){
  ctl("BUTTON","Save Body As...",500,395,220,42,365,0);
  ctl("BUTTON","Mode: Full Body (click for Singlet)",30,545,500,38,372,0);
  ctl("STATIC","Definition adjusts contrast in existing skin shading only; it cannot create new muscles or identify body parts. No DDS conversion.",30,460,1020,85,354,0);
- ctl("BUTTON","Import Face Photo",30,305,340,40,217,0);
- ctl("BUTTON","Generate 820 x 820 Face Texture",30,365,340,40,201,0);
- ctl("BUTTON","Save Face As...",30,475,340,38,366,0);
- ctl("STATIC","Texture AI engine:",30,415,160,28,218,0);
- ctl("COMBOBOX","",195,412,380,120,219,CBS_DROPDOWNLIST);
+ ctl("BUTTON","Import Face Photo",30,295,340,38,217,0);
+ ctl("BUTTON","Generate 820 x 820 Face Texture",30,345,340,38,201,0);
+ ctl("BUTTON","Save Face As...",30,490,340,38,366,0);
+ ctl("STATIC","Texture AI engine:",30,395,160,28,218,0);
+ ctl("COMBOBOX","",195,392,205,120,219,CBS_DROPDOWNLIST);
  for _,mode:=range []string{"Local AI (default; requires installed engine)","OpenAI API (optional; paid)"}{send.Call(ctrls[219],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[219],CB_SETCURSEL,0,0);
  ctl("STATIC","Import a front-facing photo. Local AI is the default; install local-engine.exe and a compatible workflow first. Cloud API is optional. No portrait-crop fallback.",30,645,980,45,203,0);
  ctl("STATIC","FACE TEXTURE PREVIEW (320 x 320)",425,110,500,28,204,0);
  ctl("STATIC","",425,150,320,320,205,SS_BITMAP|WS_BORDER);
- ctl("STATIC","Local AI uses the embedded WWE 2K26 master prompt, current template and ComfyUI. Output 820x820. A compatible image-editing workflow is required.",30,495,990,35,206,0);
+ ctl("STATIC","Face output: 820 x 820 PNG. Template fitting requires calibrated landmarks.",425,480,630,42,206,0);
  ctl("STATIC","LOCAL AI FACE TEXTURE (ComfyUI)",30,90,385,28,208,0);
  ctl("STATIC","API workflow JSON:",30,145,270,24,209,0);
  ctl("STATIC","Makeup:",30,191,120,24,210,0);
@@ -1971,8 +1971,8 @@ func main(){
  ctl("COMBOBOX","",160,228,240,160,213,CBS_DROPDOWNLIST);
  for _,v:=range []string{"Skin-tone background","Transparent background","Seamless skin fill"}{send.Call(ctrls[213],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(v))))}
  send.Call(ctrls[213],CB_SETCURSEL,0,0)
- ctl("EDIT","",30,430,370,48,214,WS_BORDER|ES_MULTILINE);
- ctl("STATIC","Local AI requires local-engine.exe and a compatible workflow; not bundled in this build.",30,585,980,42,215,0);
+ ctl("EDIT","",30,435,370,45,214,WS_BORDER|ES_MULTILINE);
+ ctl("STATIC","AI status: run the bundled installer to configure Stable Diffusion.",30,590,980,40,215,0);
  ctl("BUTTON","Generate with Local AI",30,535,340,38,216,0);
  ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
  ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
@@ -1991,15 +1991,15 @@ func main(){
  ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
  ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Original CAW Cutout (local segmentation)","Lifelike Promotional Render (requires AI engine)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Remove Background / Generate Render",30,275,380,42,323,0);ctl("STATIC","Lifelike realism (0 game / 100 photo)",30,326,320,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,65);
- ctl("STATIC","Import a screenshot first. Complex screenshots require render-segmenter.exe (local AI helper) beside the app. The cutout preserves original RGB pixels. Promotional AI is not configured.",30,315,1000,100,322,0);
+ ctl("STATIC","Import a screenshot first. Original cutout preserves RGB pixels; complex backgrounds may need render-segmenter.exe.",30,420,1000,50,322,0);
  ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
  ctl("STATIC","Superstar name",30,180,200,25,336,0);ctl("EDIT","",240,175,420,30,331,WS_BORDER);
  ctl("STATIC","Real picbase / identity",30,230,200,25,337,0);ctl("EDIT","",240,225,420,30,332,WS_BORDER);
  ctl("STATIC","Alignment (Face/Heel/Tweener)",30,280,210,25,338,0);ctl("EDIT","Face",240,275,420,30,333,WS_BORDER);
  ctl("STATIC","Group / faction",30,330,200,25,334,0);ctl("EDIT","",240,325,420,30,342,WS_BORDER);
  ctl("BUTTON","Save / Update",30,385,230,40,339,0);ctl("BUTTON","Load by name",280,385,230,40,340,0);
- ctl("STATIC","Select a saved wrestler to view their details, or enter a name and click Load.",30,445,960,35,341,0);
- ctl("STATIC","Browse saved roster:",30,620,190,26,0,0);
+ ctl("STATIC","Select a saved wrestler to view details, or enter a name and click Load.",30,435,960,35,341,0);
+ ctl("STATIC","Browse saved roster:",30,625,190,26,0,0);
  ctl("COMBOBOX","",220,615,420,260,343,CBS_DROPDOWNLIST|WS_BORDER);
  ctl("BUTTON","View Selected",660,615,180,35,344,0);
  ctl("BUTTON","Refresh Roster",855,615,180,35,346,0);
