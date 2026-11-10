@@ -5,6 +5,9 @@ on:
     branches: [main, feature/attire-auto-seam-connect]
     paths:
       - 'main.go'
+      - 'sd_backend.py'
+      - 'sd_requirements.txt'
+      - 'Setup-StableDiffusion.ps1'
       - 'go.mod'
       - 'go.sum'
       - 'assets/**'
@@ -70,11 +73,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
           if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
-          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json')) {
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json','sd_backend.py','sd_requirements.txt','Setup-StableDiffusion.ps1')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
           if (Test-Path models) { Copy-Item models dist/CAWForge/models -Recurse }
           Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
+          if (Test-Path docs/stable-diffusion-setup.md) { Copy-Item docs/stable-diffusion-setup.md dist/CAWForge/Stable-Diffusion-Setup.md }
       - name: Report local AI runtime readiness
         shell: pwsh
         run: |
