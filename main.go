@@ -784,17 +784,32 @@ func startRenderCutout(){
  if renderImagePath==""{alert("Import a CAW screenshot first.");return}
  if renderBusy{return}
  renderBusy=true
- set(322,"Removing background automatically; preserving the original face, gear and colors...")
+ realism:=0
+ if ctrls[327]!=0{v,_,_:=send.Call(ctrls[327],TBM_GETPOS,0,0);realism=int(v)}
+ set(322,fmt.Sprintf("Separating wrestler from background; photographic finish %d%%...",realism))
  path:=renderImagePath
  go func(){
-  output,err:=segmentRenderBackground(path)
-  method:="segmentation mask"
-  if err!=nil && strings.Contains(err.Error(),"render-segmenter.exe beside CAWForge"){
-   method="plain-background mask"
-   output,err=removeRenderBackground(path)
+  exe,exeErr:=os.Executable()
+  var output string
+  var err error
+  if exeErr!=nil{err=exeErr}else{
+   dir:=filepath.Dir(exe)
+   script:=filepath.Join(dir,"render_cutout.py")
+   if _,e:=os.Stat(script);e!=nil{err=fmt.Errorf("render_cutout.py missing; install the latest CAWForge build and AI dependencies")}else{
+    home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
+    outdir:=filepath.Join(home,"Documents","CAWForge","Renders")
+    if e=os.MkdirAll(outdir,0755);e!=nil{err=e}else{
+     output=filepath.Join(outdir,fmt.Sprintf("Faithful_Render_%d.png",time.Now().UnixNano()))
+     ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
+     cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,path,output,"--realism",strconv.Itoa(realism))
+     cmd.Env=stableDiffusionEnv(dir)
+     logs,e:=cmd.CombinedOutput();cancel()
+     if e!=nil{err=fmt.Errorf("foreground segmentation failed: %v: %s",e,strings.TrimSpace(string(logs)))}
+    }
+   }
   }
   matchMu.Lock()
-  if err!=nil{renderStatus="Faithful cutout unavailable: "+err.Error()+" (original screenshot unchanged)"}else{renderStatus="Faithful transparent PNG ("+method+"): "+output+" | Inspect hair and gear edges."}
+  if err!=nil{renderStatus="Render unavailable: "+err.Error()+" (source preserved)"}else{renderStatus="Transparent faithful render saved: "+output+" | Photographic finishing "+strconv.Itoa(realism)+"%. Inspect hair edges."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
@@ -1972,8 +1987,8 @@ func main(){
  ctl("STATIC","Seam test needs calibrated WWE UV pairs; uncalibrated images are preserved unchanged.",30,580,1000,65,371,0);
  uiBuildTab=3;ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
- ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Faithful Render (automatic transparent PNG)","Faithful Render (preserve original pixels)"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Retry Background Removal",30,275,380,42,323,0);ctl("STATIC","Faithful render: no AI face or attire regeneration",30,326,500,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,65);
- ctl("STATIC","Import a screenshot to remove its background automatically. Original RGB pixels are preserved.",30,420,1000,50,322,0);
+ ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Faithful Render — automatic cutout","Faithful Render — original character pixels"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Retry Background Removal",30,275,380,42,323,0);ctl("STATIC","Photographic finish (0 = original / 100 = enhanced)",30,326,600,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,0);
+ ctl("STATIC","Import to automatically isolate the wrestler. Finish slider adjusts contrast, color and sharpness without changing identity or attire.",30,420,1000,50,322,0);
  uiBuildTab=4;ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
  ctl("STATIC","Superstar name",30,180,200,25,336,0);ctl("EDIT","",240,175,420,30,331,WS_BORDER);
  ctl("STATIC","Real picbase / identity",30,230,200,25,337,0);ctl("EDIT","",240,225,420,30,332,WS_BORDER);
