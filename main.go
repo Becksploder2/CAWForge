@@ -702,7 +702,7 @@ func startRenderCutout(){
   if exeErr!=nil{err=exeErr}else{
    dir:=filepath.Dir(exe)
    script:=filepath.Join(dir,"render_cutout.py")
-   if _,e:=os.Stat(script);e!=nil{err=fmt.Errorf("render_cutout.py missing; install the latest CAWForge build and AI dependencies")}else{
+   if _,e:=os.Stat(script);e!=nil{err=fmt.Errorf("render_cutout.py not found at %q: %v. Put the script beside the running executable (%q), not just in a CAWForge project folder",script,e,exe)}else{
     home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
     outdir:=filepath.Join(home,"Documents","CAWForge","Renders")
     if e=os.MkdirAll(outdir,0755);e!=nil{err=e}else{
