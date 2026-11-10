@@ -481,12 +481,17 @@ func runAITexture(){
    if e=os.MkdirAll(outdir,0755);e!=nil{result="Cannot create face output folder: "+e.Error()}else{
     out:=filepath.Join(outdir,fmt.Sprintf("WWE_Face_%s_%d.png",tmpl,time.Now().UnixNano()))
     ctx,cancel:=context.WithTimeout(context.Background(),15*time.Minute)
-    cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),sdScript,"--mode","face","--input",photo,"--output",out)
+    args:=[]string{sdScript,"--mode","face","--input",photo,"--output",out}
+    landmarks:=filepath.Join(dir,"face_template_landmarks.json")
+    if info,e:=os.Stat(landmarks);e==nil&&!info.IsDir(){
+     args=append(args,"--template",tmpl,"--landmarks",landmarks)
+    }
+    cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),args...)
     data,e:=cmd.CombinedOutput();cancel()
     if e!=nil{result="Stable Diffusion face generation failed: "+e.Error()+" "+string(data)}else{
      f,openErr:=os.Open(out);if openErr!=nil{result="Stable Diffusion did not create output: "+openErr.Error()}else{
       cfg,format,decodeErr:=image.DecodeConfig(f);f.Close()
-      if decodeErr!=nil||format!="png"||cfg.Width!=820||cfg.Height!=820{result="Stable Diffusion produced invalid face PNG"}else{result="Saved Stable Diffusion 820 x 820 face: "+out+" (alignment and identity not verified)";outputPath=out}
+      if decodeErr!=nil||format!="png"||cfg.Width!=820||cfg.Height!=820{result="Stable Diffusion produced invalid face PNG"}else{result="Saved Stable Diffusion 820 x 820 face: "+out+" (template fit only when calibrated landmark JSON is installed; verify in game)";outputPath=out}
      }
     }
    }
