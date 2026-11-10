@@ -139,7 +139,7 @@ var textureBusy bool
 var currentTab=0
 type RosterEntry struct {Name string `json:"name"`;Picbase string `json:"picbase"`;Alignment string `json:"alignment"`;Group string `json:"group"`}
 func rosterPath()(string,error){home,e:=os.UserHomeDir();if e!=nil{return "",e};return filepath.Join(home,"Documents","CAWForge","roster.json"),nil}
-func rosterRead()([]RosterEntry,error){p,e:=rosterPath();if e!=nil{return nil,e};b,e:=os.ReadFile(p);if os.IsNotExist(e){return []RosterEntry{},nil};if e!=nil{return nil,e};var a []RosterEntry;e=json.Unmarshal(b,&a);return a,e}
+func rosterRead()([]RosterEntry,error){p,e:=rosterPath();if e!=nil{return nil,e};b,e:=os.ReadFile(p);if os.IsNotExist(e){return []RosterEntry{},nil};if e!=nil{return nil,e};var a []RosterEntry;e=json.Unmarshal(b,&a);if e==nil{sort.Slice(a,func(i,j int)bool{return strings.ToLower(a[i].Name)<strings.ToLower(a[j].Name)})};return a,e}
 func rosterSave()error{
  name:=strings.TrimSpace(txt(331));if name==""{return fmt.Errorf("enter a wrestler name")}
  a,e:=rosterRead();if e!=nil{return e}
