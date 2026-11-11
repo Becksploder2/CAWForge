@@ -173,6 +173,29 @@ def studio_pro(image, strength):
     return Image.fromarray(rgba,"RGBA")
 
 
+def photographic_grade(image, strength):
+    """Studio-Pro-only soft highlight rolloff and subtle shadow depth.
+    Color and shape remain derived exclusively from the original image."""
+    if strength<=0:
+        return image
+    rgba=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
+    alpha=rgba[:,:,3].astype(np.float32)/255.0
+    lab=cv2.cvtColor(rgba[:,:,:3],cv2.COLOR_RGB2LAB)
+    l=lab[:,:,0].astype(np.float32)
+    # Gentle photographic S curve: deeper midtone shadows, softer highlights.
+    normalized=l/255.0
+    contrast=normalized+0.15*strength*(normalized-0.5)*(1.0-np.abs(2*normalized-1))
+    # Protect highlights and shadow detail rather than clipping them.
+    contrast=np.clip(contrast,0,1)
+    l=l*(1-alpha*strength*0.55)+255*contrast*(alpha*strength*0.55)
+    # Subtle broad tonal depth, no synthetic grain or pores.
+    local=cv2.GaussianBlur(l,(0,0),18)
+    l+=np.clip(l-local,-22,22)*0.10*strength*alpha
+    lab[:,:,0]=np.uint8(np.clip(l,0,255))
+    rgba[:,:,:3]=cv2.cvtColor(lab,cv2.COLOR_LAB2RGB)
+    return Image.fromarray(rgba,"RGBA")
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("source")
@@ -232,6 +255,7 @@ def main():
         output=material_detail(output,level)
     if args.studio_pro:
         output=studio_pro(output,level)
+        output=photographic_grade(output,level)
     if not args.no_crop:
         output=crop_to_subject(output)
     output=clear_hidden_background(output)
