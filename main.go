@@ -1865,7 +1865,7 @@ func main(){
  // The chosen theme is retained and shown in a small non-overlapping preview.
  themeBackdrop=0
  ctl("STATIC","CAWFORGE STUDIO",20,15,460,28,0,0);
- ctl("BUTTON","Morph Settings",520,12,130,32,200,0);ctl("BUTTON","Face Texture",655,12,130,32,202,0);ctl("BUTTON","Graphic Generator",790,12,150,32,300,0);ctl("BUTTON","Render Creator",945,12,150,32,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);uiBuildTab=0;ctl("STATIC","Character name",20,55,120,22,0,0);ctl("EDIT","New Superstar",145,50,245,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES",400,50,165,28,1,0);ctl("BUTTON","FEMALE TEMPLATES",575,50,175,28,2,0);ctl("COMBOBOX","",760,50,150,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",915,55,25,22,23,0)
+ ctl("BUTTON","Morph Settings",520,12,130,30,200,0);ctl("BUTTON","Face Texture",655,12,130,30,202,0);ctl("BUTTON","Graphic Generator",790,12,150,30,300,0);ctl("BUTTON","Render Creator",945,12,150,30,320,0);ctl("BUTTON","Roster",945,52,150,30,330,0);ctl("BUTTON","Body Texture",790,52,150,30,350,0);uiBuildTab=0;ctl("STATIC","Character name",20,55,120,22,0,0);ctl("EDIT","New Superstar",145,50,245,28,20,WS_BORDER);ctl("BUTTON","MALE TEMPLATES",400,50,165,28,1,0);ctl("BUTTON","FEMALE TEMPLATES",575,50,175,28,2,0);ctl("COMBOBOX","",760,50,150,360,3,CBS_DROPDOWNLIST|WS_VSCROLL);for i:=1;i<=20;i++{send.Call(ctrls[3],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(fmt.Sprintf("Template %d",i)))))};send.Call(ctrls[3],CB_SETCURSEL,9,0);ctl("STATIC","F10",915,55,25,22,23,0)
  uiBuildTab=0;ctl("BUTTON","Choose reference photo (or drop image)",20,100,260,32,4,0);ctl("STATIC","Template library:",575,105,130,24,0,0);ctl("COMBOBOX","",705,100,195,240,13,CBS_DROPDOWNLIST|WS_VSCROLL);for _,option:=range []string{"Auto (selected library)","Female only","Male only"}{send.Call(ctrls[13],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(option))))};send.Call(ctrls[13],CB_SETCURSEL,0,0);ctl("STATIC","Drop photo onto window or choose file",295,105,270,24,25,0);ctl("BUTTON","Export morph sheet",20,145,210,32,5,0);ctl("BUTTON","Reset sliders",245,145,150,32,6,0);ctl("BUTTON","Import Template Image",415,145,255,32,7,0);ctl("BUTTON","View template showcase",690,145,210,32,8,0);ctl("BUTTON","Refresh Template Library",20,187,170,30,9,0);ctl("BUTTON","Retry Photo Match",205,187,140,30,10,0);ctl("BUTTON","Import MALE Grid",20,688,170,29,11,0);ctl("BUTTON","Import FEMALE Grid",205,688,180,29,12,0);ctl("STATIC","Auto-selects best available match on photo import (requires real template images).",360,191,680,24,0,0);ctl("STATIC","Loading installed template references automatically...",20,218,1040,22,41,0)
  for i,g:=range groups{ctl("BUTTON",g.name,20+(i%7)*155,245+(i/7)*35,149,30,50+i,0)};ctl("STATIC","Category: Head",20,348,400,26,40,0)
  for i:=0;i<8;i++{y:=384+i*37;ctl("STATIC","",20,y,215,25,100+i,0);v:=ctl("msctls_trackbar32","",250,y-4,315,34,110+i,WS_TABSTOP);send.Call(v,TBM_SETRANGE,1,uintptr(100<<16));ctl("STATIC","",575,y,60,24,120+i,0)}
@@ -1890,9 +1890,9 @@ func main(){
  ctl("BUTTON","Save Body As...",500,395,220,42,365,0);
  ctl("BUTTON","Mode: Full Body (click for Singlet)",30,545,500,38,372,0);
  ctl("STATIC","Definition adjusts contrast in existing skin shading only; it cannot create new muscles or identify body parts. No DDS conversion.",30,460,1020,85,354,0);
- uiBuildTab=1;ctl("BUTTON","Import Face Photo",30,295,340,38,217,0);
- ctl("BUTTON","Create Face Scan Preview",30,345,340,38,201,0);
- ctl("BUTTON","Save Face As...",30,490,340,38,366,0);
+ uiBuildTab=1;ctl("BUTTON","Import Face Photo",30,295,260,34,217,0);
+ ctl("BUTTON","Create Face Scan Preview",30,341,260,34,201,0);
+ ctl("BUTTON","Save Face As...",30,490,260,34,366,0);
  ctl("STATIC","Texture AI engine:",30,395,160,28,218,0);
  ctl("COMBOBOX","",195,392,205,120,219,CBS_DROPDOWNLIST);
  for _,mode:=range []string{"Local AI (default; requires installed engine)","OpenAI API (optional; paid)"}{send.Call(ctrls[219],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[219],CB_SETCURSEL,0,0);
@@ -1912,8 +1912,8 @@ func main(){
  send.Call(ctrls[213],CB_SETCURSEL,0,0)
  ctl("EDIT","",30,435,370,45,214,WS_BORDER|ES_MULTILINE);
  ctl("STATIC","AI status: run the bundled installer to configure Stable Diffusion.",30,590,980,40,215,0)
- ctl("BUTTON","Face Texture Guide",425,540,320,38,220,0);;
- ctl("BUTTON","Local Face AI (not yet ready)",30,535,340,38,216,0);
+ ctl("BUTTON","Face Texture Guide",425,540,250,34,220,0);;
+ ctl("BUTTON","Local AI (unavailable)",30,535,260,34,216,0);
  uiBuildTab=2;ctl("STATIC","GRAPHIC CREATOR - CHOOSE WHAT YOU ARE MAKING",30,110,900,34,301,0);
  ctl("STATIC","1. Graphic category (required):",30,170,270,26,302,0);
  ctl("STATIC","2. Describe the selected graphic (colors, words, logos and layout):",30,240,900,26,303,0);
