@@ -50,10 +50,25 @@ def main():
     pad_right=max(0,x1-w)
     pad_bottom=max(0,y1-h)
     if any((pad_left,pad_top,pad_right,pad_bottom)):
-        src=cv2.copyMakeBorder(
-            src,pad_top,pad_bottom,pad_left,pad_right,
-            cv2.BORDER_REFLECT_101
-        )
+        # Never reflect a portrait: that duplicates eyes, eyebrows and mouths.
+        # Sample cheek skin and fill missing canvas with a matching skin tone.
+        cheek_y=int(np.clip(y+fh*0.68,0,h-1))
+        cheek_xs=[int(np.clip(x+fw*0.16,0,w-1)),int(np.clip(x+fw*0.84,0,w-1))]
+        samples=[]
+        for px in cheek_xs:
+            patch=src[max(0,cheek_y-8):min(h,cheek_y+9),max(0,px-8):min(w,px+9)]
+            if patch.size: samples.append(np.median(patch.reshape(-1,3),axis=0))
+        skin=np.uint8(np.clip(np.median(samples,axis=0),0,255)) if samples else np.array([180,180,180],dtype=np.uint8)
+        expanded=np.empty((h+pad_top+pad_bottom,w+pad_left+pad_right,3),dtype=np.uint8)
+        expanded[:]=skin
+        expanded[pad_top:pad_top+h,pad_left:pad_left+w]=src
+        # Blend only within the newly added border, never across the face.
+        mask=np.zeros((expanded.shape[0],expanded.shape[1]),dtype=np.uint8)
+        mask[pad_top:pad_top+h,pad_left:pad_left+w]=255
+        soft=cv2.GaussianBlur(mask,(0,0),sigmaX=max(2,side*0.018))
+        weight=(soft.astype(np.float32)/255.0)[:,:,None]
+        expanded=np.uint8(np.clip(expanded.astype(np.float32)*weight+skin[None,None,:]*(1-weight),0,255))
+        src=expanded
         x0+=pad_left
         x1+=pad_left
         y0+=pad_top
