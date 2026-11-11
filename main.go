@@ -708,7 +708,9 @@ func startRenderCutout(){
     home,_:=os.UserHomeDir();if home==""{home=os.TempDir()}
     outdir:=filepath.Join(home,"Documents","CAWForge","Renders")
     if e=os.MkdirAll(outdir,0755);e!=nil{err=e}else{
-     output=filepath.Join(outdir,fmt.Sprintf("Faithful_Render_%d.png",time.Now().UnixNano()))
+     prefix:="Faithful_Render"
+     if studioPro{prefix="Studio_Pro"}
+     output=filepath.Join(outdir,fmt.Sprintf("%s_%d.png",prefix,time.Now().UnixNano()))
      ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
      modeFlag:="--studio"
      if studioPro{modeFlag="--studio-pro"}
