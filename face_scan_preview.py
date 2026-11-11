@@ -27,9 +27,25 @@ def main():
     cy=y+fh*0.59
     x0=int(round(cx-side/2));y0=int(round(cy-side/2))
     x1=x0+side;y1=y0+side
-    if x0<0 or y0<0 or x1>w or y1>h:
-        raise ValueError("Face too close to photo border; use a photo with more room around the head")
+    # Preserve the face geometry even when the source portrait is narrow.
+    # Fill missing crop space with a soft reflection of the photo edges,
+    # rather than rejecting otherwise valid front-facing photos.
+    pad_left=max(0,-x0)
+    pad_top=max(0,-y0)
+    pad_right=max(0,x1-w)
+    pad_bottom=max(0,y1-h)
+    if any((pad_left,pad_top,pad_right,pad_bottom)):
+        src=cv2.copyMakeBorder(
+            src,pad_top,pad_bottom,pad_left,pad_right,
+            cv2.BORDER_REFLECT_101
+        )
+        x0+=pad_left
+        x1+=pad_left
+        y0+=pad_top
+        y1+=pad_top
     crop=src[y0:y1,x0:x1]
+    if crop.shape[0]!=side or crop.shape[1]!=side:
+        raise RuntimeError("Internal face crop size mismatch")
     preview=cv2.resize(crop,(820,820),interpolation=cv2.INTER_LANCZOS4)
     target=Path(a.destination);target.parent.mkdir(parents=True,exist_ok=True)
     cv2.imwrite(str(target),preview)
