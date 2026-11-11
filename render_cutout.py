@@ -10,7 +10,7 @@ import cv2
 from rembg import remove, new_session
 
 def refine_mask(mask):
-    """Remove isolated segmentation debris while retaining the main silhouette."""
+    """Remove disconnected debris while retaining the model's soft hair edges."""
     solid=(mask>=96).astype(np.uint8)
     count,labels,stats,_=cv2.connectedComponentsWithStats(solid,8)
     if count<=1:
@@ -18,13 +18,22 @@ def refine_mask(mask):
     largest=1+int(np.argmax(stats[1:,cv2.CC_STAT_AREA]))
     if stats[largest,cv2.CC_STAT_AREA]<0.01*mask.size:
         return mask
-    # Keep only the main connected silhouette; suppress distant speckles.
+    # Include the original feathered pixels touching the main component.
     keep=(labels==largest).astype(np.uint8)
-    # Close tiny pinholes only; do not bridge broad spaces between limbs.
-    keep=cv2.morphologyEx(keep,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
-    # Soften pixel-staircase edges by <=1px while leaving the body opaque.
-    soft=cv2.GaussianBlur(keep.astype(np.float32),(3,3),0.65)
-    return np.uint8(np.clip(soft*255,0,255))
+    keep=cv2.dilate(keep,np.ones((5,5),np.uint8),iterations=1)
+    result=np.where(keep>0,mask,0).astype(np.uint8)
+    # Very light feather only on the transition, not the interior.
+    softened=cv2.GaussianBlur(result,(3,3),0.55)
+    transition=(result>0)&(result<255)
+    result[transition]=softened[transition]
+    return result
+
+
+def clear_hidden_background(image):
+    """Zero RGB under fully transparent pixels without changing visible pixels."""
+    pixels=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
+    pixels[pixels[:,:,3]==0,:3]=0
+    return Image.fromarray(pixels,"RGBA")
 
 
 def crop_to_subject(image):
@@ -54,8 +63,8 @@ def main():
     a=np.asarray(source.getchannel("A"))
     if np.mean(a<250)>0.01:
         # Existing meaningful transparency must never be re-segmented.
-        output=source
-        print("Existing transparency detected; preserving original pixels")
+        output=source.copy()
+        print("Existing transparency detected; preserving original alpha")
     else:
         session=new_session("u2netp")
         cut=remove(source,session=session,only_mask=True,post_process_mask=False)
@@ -94,6 +103,7 @@ def main():
         output.putalpha(alpha)
     if not args.no_crop:
         output=crop_to_subject(output)
+    output=clear_hidden_background(output)
     target=Path(args.destination)
     target.parent.mkdir(parents=True,exist_ok=True)
     output.save(target,"PNG")
