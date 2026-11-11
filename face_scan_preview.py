@@ -80,24 +80,41 @@ def main():
     preview=cv2.resize(crop,(820,820),interpolation=cv2.INTER_LANCZOS4)
     target=Path(a.destination);target.parent.mkdir(parents=True,exist_ok=True)
     if a.template:
-        base=cv2.imread(a.template,cv2.IMREAD_COLOR)
-        if base is None: raise ValueError("Cannot read selected UV template")
-        base=cv2.resize(base,(820,820),interpolation=cv2.INTER_AREA)
-        # Experimental facial-feature transfer, not calibrated game UV mapping.
+        # The selected UV is an alignment reference, NOT a background.
+        # Never leave the template owner's eyes, brows, nose or mouth visible.
+        guide=cv2.imread(a.template,cv2.IMREAD_COLOR)
+        if guide is None: raise ValueError("Cannot read selected UV template")
+        # Build a new skin-only background sampled from the source cheeks.
+        # This is still a preview; proper UV landmarks need calibration.
+        cheek_y=int(np.clip(y+fh*0.66,0,h-1))
+        skin_samples=[]
+        for frac in (0.18,0.82):
+            px=int(np.clip(x+fw*frac,0,w-1))
+            patch=rgba[max(0,cheek_y-6):min(h,cheek_y+7),max(0,px-6):min(w,px+7)]
+            if patch.ndim==3 and patch.shape[2]>=3 and patch.size:
+                skin_samples.append(np.median(patch[:,:,:3].reshape(-1,patch.shape[2])[:,:3],axis=0))
+        skin=np.uint8(np.clip(np.median(skin_samples,axis=0),0,255)) if skin_samples else np.array([175,175,175],dtype=np.uint8)
+        base=np.empty((820,820,3),dtype=np.uint8)
+        base[:]=skin
+        # Source-only face patch: center it with broad, soft transitions.
         face_x=int(round((x+fw/2-x0)*820/side))
         face_y=int(round((y+fh/2-y0)*820/side))
-        half_w=int(round(fw*0.57*820/side))
-        half_h=int(round(fh*0.63*820/side))
+        half_w=int(round(fw*0.67*820/side))
+        half_h=int(round(fh*0.79*820/side))
         xx0=max(0,face_x-half_w);xx1=min(820,face_x+half_w)
         yy0=max(0,face_y-half_h);yy1=min(820,face_y+half_h)
         if xx1-xx0<20 or yy1-yy0<20: raise ValueError("Detected face too small for texture transfer")
         face_patch=preview[yy0:yy1,xx0:xx1]
-        dst_w=int(820*0.55);dst_h=int(820*0.55)
+        dst_w=560;dst_h=590
         face_patch=cv2.resize(face_patch,(dst_w,dst_h),interpolation=cv2.INTER_LANCZOS4)
-        mask=np.zeros((dst_h,dst_w),dtype=np.uint8)
-        cv2.ellipse(mask,(dst_w//2,dst_h//2),(int(dst_w*0.47),int(dst_h*0.48)),0,0,360,255,-1)
-        preview=cv2.seamlessClone(face_patch,base,mask,(410,410),cv2.NORMAL_CLONE)
-        print("EXPERIMENTAL UV blend: source face transferred onto selected template.")
+        mask=np.zeros((dst_h,dst_w),dtype=np.float32)
+        cv2.ellipse(mask,(dst_w//2,dst_h//2),(int(dst_w*0.47),int(dst_h*0.47)),0,0,360,1.0,-1)
+        mask=cv2.GaussianBlur(mask,(0,0),sigmaX=35,sigmaY=35)[:,:,None]
+        top=(820-dst_h)//2;left=(820-dst_w)//2
+        region=base[top:top+dst_h,left:left+dst_w].astype(np.float32)
+        base[top:top+dst_h,left:left+dst_w]=np.uint8(np.clip(face_patch.astype(np.float32)*mask+region*(1-mask),0,255))
+        preview=base
+        print("Source-face preview created; UV template used as reference only, not copied.")
     cv2.imwrite(str(target),preview)
     print("820x820 aligned face-scan PREVIEW saved. NOT game-ready UV: hair/ears and template calibration still require work.")
 if __name__=="__main__":
