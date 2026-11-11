@@ -47,7 +47,7 @@ $envPath = Join-Path $AIHome '.venv'
 $py = Join-Path $envPath 'Scripts\python.exe'
 $recreate = $true
 if (Test-Path $py) {
-  $version = & $py -c 'import sys; print(str(sys.version_info.major) + "." + str(sys.version_info.minor))'
+  $version = & $py -c 'import sys; print(sys.version_info.major,sys.version_info.minor,sep=chr(46))'
   if ($LASTEXITCODE -eq 0 -and $version -eq '3.11') { $recreate = $false }
 }
 if ($recreate) {
@@ -62,7 +62,7 @@ if ($recreate) {
 Write-Host '[1/6] Checking Python package installer...'
 & $py -m pip --version
 Assert-Success 'pip readiness'
-& $py -c 'import torch; assert torch.cuda.is_available(), "CUDA unavailable"; print("Existing CUDA PyTorch ready:", torch.__version__)'
+& $py -c 'import torch; assert torch.cuda.is_available(); print(torch.__version__)'
 if ($LASTEXITCODE -ne 0) {
   Write-Host '[2/6] Installing or repairing CUDA PyTorch...'
   & $py -m pip install --no-cache-dir 'torch==2.5.1' 'torchvision==0.20.1' --index-url https://download.pytorch.org/whl/cu121
@@ -74,15 +74,17 @@ Assert-Success 'AI dependencies installation'
 Write-Host '[4/6] Installing or repairing face scan, cutout and render libraries...'
 & $py -m pip install 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2' 'opencv-python-headless>=4.8,<4.12' 'Pillow>=10,<13'
 Assert-Success 'Background removal dependencies installation'
-& $py -c 'import sys, numpy, onnxruntime, cv2, PIL, torch, diffusers, transformers, accelerate, safetensors; from rembg import remove, new_session; print("All CAWForge Python imports ready:", sys.executable)'
+& $py -c 'import sys, numpy, onnxruntime, cv2, PIL, torch, diffusers, transformers, accelerate, safetensors; from rembg import remove, new_session; print(sys.executable)'
 Assert-Success 'Full dependency import verification'
 Write-Host '[5/6] Checking AI backend...'
-Assert-Success 'Background removal import verification'
 & $py (Join-Path $PSScriptRoot 'sd_backend.py') --check
 Assert-Success 'GPU readiness check'
 Write-Host '[6/6] Checking model files...'
 if (-not $SkipModelDownload) {
-  & $py -c "from huggingface_hub import snapshot_download; snapshot_download('stable-diffusion-v1-5/stable-diffusion-v1-5', allow_patterns=['*.json','*.txt','*.safetensors','tokenizer/*','scheduler/*','feature_extractor/*'])"
+  @'
+from huggingface_hub import snapshot_download
+snapshot_download("stable-diffusion-v1-5/stable-diffusion-v1-5", allow_patterns=["*.json","*.txt","*.safetensors","tokenizer/*","scheduler/*","feature_extractor/*"])
+'@ | & $py -
   Assert-Success 'Stable Diffusion model download'
 }
 $config = @{ python = $py; ai_home = $AIHome; hf_home = $env:HF_HOME; temp = $env:TEMP; torch_home = $env:TORCH_HOME }
