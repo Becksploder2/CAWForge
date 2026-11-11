@@ -86,6 +86,57 @@ def studio_light(image, strength):
     return Image.fromarray(rgba,"RGBA")
 
 
+def remove_blue_backdrop_leak(image):
+    """Conservatively reject partially transparent blue-gray backdrop spill.
+    Protect opaque clothing, dark hair, and fine edges."""
+    rgba=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
+    alpha=rgba[:,:,3]
+    hsv=cv2.cvtColor(rgba[:,:,:3],cv2.COLOR_RGB2HSV)
+    h,w=alpha.shape
+    yy=np.arange(h)[:,None]
+    # Background leakage is blue-gray, semi-transparent, and below the hair.
+    suspect=((hsv[:,:,0]>=95)&(hsv[:,:,0]<=124)&
+             (hsv[:,:,1]>=42)&(hsv[:,:,1]<=135)&
+             (hsv[:,:,2]<125)&(alpha>12)&(alpha<245)&
+             (yy>int(h*0.34)))
+    # Remove only substantial connected spill regions, not isolated pixels.
+    count,labels,stats,_=cv2.connectedComponentsWithStats(suspect.astype(np.uint8),8)
+    for idx in range(1,count):
+        area=int(stats[idx,cv2.CC_STAT_AREA])
+        if area>=60:
+            rgba[:,:,3][labels==idx]=0
+    return Image.fromarray(rgba,"RGBA")
+
+
+def material_detail(image, strength):
+    """Selective luminance finishing from existing pixels, without synthesis."""
+    if strength<=0:
+        return image
+    rgba=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
+    rgb=rgba[:,:,:3]
+    hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+    lab=cv2.cvtColor(rgb,cv2.COLOR_RGB2LAB)
+    lum=lab[:,:,0].astype(np.float32)
+    # Broad skin color range; avoid dark tattoos and saturated gear.
+    skin=((hsv[:,:,0]>=4)&(hsv[:,:,0]<=24)&
+          (hsv[:,:,1]>=35)&(hsv[:,:,1]<=190)&(hsv[:,:,2]>=80))
+    # Dark, low-saturation material includes hair; avoid global skin sharpening.
+    dark=((hsv[:,:,2]<115)&(hsv[:,:,1]<105))
+    # Colorful and bright gear gets stronger local detail.
+    gear=((hsv[:,:,1]>115)&(hsv[:,:,2]>65)&(~skin))
+    soft=cv2.GaussianBlur(lum,(0,0),1.15)
+    detail=lum-soft
+    gain=np.zeros_like(lum)
+    gain[skin]=0.48
+    gain[dark]=0.85
+    gain[gear]=0.95
+    # No invented pores: only amplify detail already present in source.
+    lum=np.clip(lum+np.clip(detail,-12,12)*gain*strength,0,255)
+    lab[:,:,0]=lum.astype(np.uint8)
+    rgba[:,:,:3]=cv2.cvtColor(lab,cv2.COLOR_LAB2RGB)
+    return Image.fromarray(rgba,"RGBA")
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("source")
@@ -114,6 +165,7 @@ def main():
         # Do not touch original color channels. Alpha alone is replaced.
         output=source.copy()
         output.putalpha(Image.fromarray(mask,"L"))
+    output=remove_blue_backdrop_leak(output)
     # Identity-safe photographic finishing: deterministic, local and non-generative.
     # Keep alpha and silhouette unchanged; only refine original RGB.
     level=max(0,min(100,args.realism))/100
@@ -140,6 +192,7 @@ def main():
         output.putalpha(alpha)
     if args.studio:
         output=studio_light(output,level)
+        output=material_detail(output,level)
     if not args.no_crop:
         output=crop_to_subject(output)
     output=clear_hidden_background(output)
