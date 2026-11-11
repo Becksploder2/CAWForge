@@ -869,11 +869,23 @@ func localAttireEngine()string{
  if info,err:=os.Stat(path);err==nil&&!info.IsDir(){return path}
  return ""
 }
+func checkAttirePython(dir string)error{
+ py:=stableDiffusionPython(dir)
+ ctx,cancel:=context.WithTimeout(context.Background(),45*time.Second)
+ defer cancel()
+ // Probe the exact interpreter used by the attire subprocess.
+ cmd:=exec.CommandContext(ctx,py,"-c","import sys, importlib.util; missing=[m for m in ('numpy','torch','diffusers','transformers','accelerate','safetensors') if importlib.util.find_spec(m) is None]; print('Python:',sys.executable); print('Missing:', ', '.join(missing) if missing else 'none'); sys.exit(2 if missing else 0)")
+ cmd.Env=stableDiffusionEnv(dir)
+ output,err:=cmd.CombinedOutput()
+ if err!=nil{return fmt.Errorf("attire AI environment not ready (%s): %s. Open Face Texture > Install / Repair AI, then restart CAWForge",py,strings.TrimSpace(string(output)))}
+ return nil
+}
 func generateLocalAIAttire(description string)(string,error){
  engine:=localAttireEngine()
  exe,_:=os.Executable();sdScript:=filepath.Join(filepath.Dir(exe),"sd_backend.py")
  _,sdErr:=os.Stat(sdScript)
  if engine==""&&sdErr!=nil{return "",fmt.Errorf("install sd_backend.py with Python dependencies or attire-engine.exe")}
+ if sdErr==nil{if err:=checkAttirePython(filepath.Dir(exe));err!=nil{return "",err}}
  home,err:=os.UserHomeDir();if err!=nil{return "",err}
  dir:=filepath.Join(home,"Documents","CAWForge","AIAttire")
  if err=os.MkdirAll(dir,0755);err!=nil{return "",err}
@@ -884,7 +896,7 @@ func generateLocalAIAttire(description string)(string,error){
   var cmd *exec.Cmd
   if sdErr==nil{cmd=exec.CommandContext(ctx,stableDiffusionPython(filepath.Dir(exe)),sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out);cmd.Env=stableDiffusionEnv(filepath.Dir(exe))}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
   output,runErr:=cmd.CombinedOutput();cancel()
-  if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s: %v: %s",piece,runErr,strings.TrimSpace(string(output)))}
+  if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s (Python: %s): %v: %s. If dependencies are missing, use Face Texture > Install / Repair AI",piece,stableDiffusionPython(filepath.Dir(exe)),runErr,strings.TrimSpace(string(output)))}
   file,openErr:=os.Open(out);if openErr!=nil{return "",fmt.Errorf("engine did not create %s: %w",out,openErr)}
   imageData,decodeErr:=png.Decode(file);file.Close()
   if decodeErr!=nil{return "",fmt.Errorf("engine output for %s is not a valid PNG: %w",piece,decodeErr)}
