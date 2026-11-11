@@ -47,7 +47,7 @@ $envPath = Join-Path $AIHome '.venv'
 $py = Join-Path $envPath 'Scripts\python.exe'
 $recreate = $true
 if (Test-Path $py) {
-  $version = & $py -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+  $version = & $py -c 'import sys; print(str(sys.version_info.major) + "." + str(sys.version_info.minor))'
   if ($LASTEXITCODE -eq 0 -and $version -eq '3.11') { $recreate = $false }
 }
 if ($recreate) {
