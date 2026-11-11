@@ -9,6 +9,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("source")
     p.add_argument("destination")
+    p.add_argument('--template',help='Optional existing 820x820 face UV layout')
     a=p.parse_args()
     # Flatten transparent renders onto a neutral backdrop for face detection.
     rgba=cv2.imread(a.source,cv2.IMREAD_UNCHANGED)
@@ -78,6 +79,25 @@ def main():
         raise RuntimeError("Internal face crop size mismatch")
     preview=cv2.resize(crop,(820,820),interpolation=cv2.INTER_LANCZOS4)
     target=Path(a.destination);target.parent.mkdir(parents=True,exist_ok=True)
+    if a.template:
+        base=cv2.imread(a.template,cv2.IMREAD_COLOR)
+        if base is None: raise ValueError("Cannot read selected UV template")
+        base=cv2.resize(base,(820,820),interpolation=cv2.INTER_AREA)
+        # Experimental facial-feature transfer, not calibrated game UV mapping.
+        face_x=int(round((x+fw/2-x0)*820/side))
+        face_y=int(round((y+fh/2-y0)*820/side))
+        half_w=int(round(fw*0.57*820/side))
+        half_h=int(round(fh*0.63*820/side))
+        xx0=max(0,face_x-half_w);xx1=min(820,face_x+half_w)
+        yy0=max(0,face_y-half_h);yy1=min(820,face_y+half_h)
+        if xx1-xx0<20 or yy1-yy0<20: raise ValueError("Detected face too small for texture transfer")
+        face_patch=preview[yy0:yy1,xx0:xx1]
+        dst_w=int(820*0.55);dst_h=int(820*0.55)
+        face_patch=cv2.resize(face_patch,(dst_w,dst_h),interpolation=cv2.INTER_LANCZOS4)
+        mask=np.zeros((dst_h,dst_w),dtype=np.uint8)
+        cv2.ellipse(mask,(dst_w//2,dst_h//2),(int(dst_w*0.47),int(dst_h*0.48)),0,0,360,255,-1)
+        preview=cv2.seamlessClone(face_patch,base,mask,(410,410),cv2.NORMAL_CLONE)
+        print("EXPERIMENTAL UV blend: source face transferred onto selected template.")
     cv2.imwrite(str(target),preview)
     print("820x820 aligned face-scan PREVIEW saved. NOT game-ready UV: hair/ears and template calibration still require work.")
 if __name__=="__main__":
