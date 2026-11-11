@@ -10,16 +10,31 @@ def main():
     p.add_argument("source")
     p.add_argument("destination")
     a=p.parse_args()
-    src=cv2.imread(a.source)
-    if src is None: raise ValueError("Could not open source photo")
+    # Flatten transparent renders onto a neutral backdrop for face detection.
+    rgba=cv2.imread(a.source,cv2.IMREAD_UNCHANGED)
+    if rgba is None: raise ValueError("Could not open source photo")
+    if len(rgba.shape)==2:
+        src=cv2.cvtColor(rgba,cv2.COLOR_GRAY2BGR)
+    elif rgba.shape[2]==4:
+        alpha=rgba[:,:,3:4].astype(np.float32)/255.0
+        src=np.uint8(np.clip(rgba[:,:,:3].astype(np.float32)*alpha+235.0*(1-alpha),0,255))
+    else:
+        src=rgba[:,:,:3]
     h,w=src.shape[:2]
     if min(h,w)<240: raise ValueError("Use a photo at least 240 pixels on each side")
     cascade=cv2.CascadeClassifier(cv2.data.haarcascades+"haarcascade_frontalface_default.xml")
     if cascade.empty(): raise RuntimeError("OpenCV frontal-face detector unavailable")
     gray=cv2.cvtColor(src,cv2.COLOR_BGR2GRAY)
-    faces=cascade.detectMultiScale(gray,scaleFactor=1.08,minNeighbors=6,minSize=(90,90))
-    if len(faces)!=1:
-        raise ValueError(f"Expected exactly one clear frontal face; detected {len(faces)}. Use a straight-on, well-lit single-person photo.")
+    faces=cascade.detectMultiScale(gray,scaleFactor=1.08,minNeighbors=6,minSize=(70,70))
+    if len(faces)==0:
+        # A second detector pass handles some makeup-heavy or rendered faces.
+        enhanced=cv2.createCLAHE(clipLimit=2.0,tileGridSize=(8,8)).apply(gray)
+        faces=cascade.detectMultiScale(enhanced,scaleFactor=1.05,minNeighbors=3,minSize=(60,60))
+    if len(faces)>1:
+        # Use the largest candidate, typically the foreground portrait.
+        faces=sorted(faces,key=lambda f:int(f[2])*int(f[3]),reverse=True)
+    if len(faces)==0:
+        raise ValueError("No face detected automatically, even after enhanced detection. Try a closer head-and-shoulders crop. Manual face placement is not yet available.")
     x,y,fw,fh=map(int,faces[0])
     # Crop with generous forehead and chin room; never stretch the face.
     side=int(round(max(fw*1.95,fh*1.72)))
