@@ -52,8 +52,12 @@ if ($recreate) {
 }
 & $py -m pip install --upgrade pip --no-cache-dir
 Assert-Success 'pip upgrade'
-& $py -m pip install --no-cache-dir 'torch==2.5.1' 'torchvision==0.20.1' --index-url https://download.pytorch.org/whl/cu121
-Assert-Success 'CUDA PyTorch installation'
+& $py -c 'import torch; assert torch.cuda.is_available(), "CUDA unavailable"; print("Existing CUDA PyTorch ready:", torch.__version__)'
+if ($LASTEXITCODE -ne 0) {
+  Write-Host 'Installing CUDA PyTorch (first setup or repair)...'
+  & $py -m pip install --no-cache-dir 'torch==2.5.1' 'torchvision==0.20.1' --index-url https://download.pytorch.org/whl/cu121
+  Assert-Success 'CUDA PyTorch installation'
+} else { Write-Host 'Keeping existing working CUDA PyTorch.' }
 & $py -m pip install --no-cache-dir -r (Join-Path $PSScriptRoot 'sd_requirements.txt')
 Assert-Success 'AI dependencies installation'
 & $py -m pip install --no-cache-dir 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2' 'opencv-python-headless>=4.8,<4.12'
