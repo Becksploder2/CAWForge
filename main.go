@@ -708,7 +708,7 @@ func startRenderCutout(){
     if e=os.MkdirAll(outdir,0755);e!=nil{err=e}else{
      output=filepath.Join(outdir,fmt.Sprintf("Faithful_Render_%d.png",time.Now().UnixNano()))
      ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
-     cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,path,output,"--realism",strconv.Itoa(realism))
+     cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,path,output,"--realism",strconv.Itoa(realism),"--studio")
      cmd.Env=stableDiffusionEnv(dir)
      logs,e:=cmd.CombinedOutput();cancel()
      if e!=nil{err=fmt.Errorf("foreground segmentation failed: %v: %s",e,strings.TrimSpace(string(logs)))}
@@ -716,7 +716,7 @@ func startRenderCutout(){
    }
   }
   matchMu.Lock()
-  if err!=nil{renderStatus="Render unavailable: "+err.Error()+" (source preserved)"}else{renderStatus="Transparent faithful render saved: "+output+" | Photographic finishing "+strconv.Itoa(realism)+"%. Inspect hair edges."}
+  if err!=nil{renderStatus="Render unavailable: "+err.Error()+" (source preserved)"}else{renderStatus="Studio-lit faithful render saved: "+output+" | Photographic finishing "+strconv.Itoa(realism)+"%. Inspect hair edges."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
