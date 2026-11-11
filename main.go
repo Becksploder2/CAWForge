@@ -692,6 +692,8 @@ func startRenderCutout(){
  if renderBusy{return}
  renderBusy=true
  realism:=0
+ studioPro:=false
+ if ctrls[325]!=0{selected,_,_:=send.Call(ctrls[325],CB_GETCURSEL,0,0);studioPro=selected==2}
  if ctrls[327]!=0{v,_,_:=send.Call(ctrls[327],TBM_GETPOS,0,0);realism=int(v)}
  set(322,fmt.Sprintf("Separating wrestler from background; photographic finish %d%%...",realism))
  path:=renderImagePath
@@ -708,7 +710,9 @@ func startRenderCutout(){
     if e=os.MkdirAll(outdir,0755);e!=nil{err=e}else{
      output=filepath.Join(outdir,fmt.Sprintf("Faithful_Render_%d.png",time.Now().UnixNano()))
      ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
-     cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,path,output,"--realism",strconv.Itoa(realism),"--studio")
+     modeFlag:="--studio"
+     if studioPro{modeFlag="--studio-pro"}
+     cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,path,output,"--realism",strconv.Itoa(realism),modeFlag)
      cmd.Env=stableDiffusionEnv(dir)
      logs,e:=cmd.CombinedOutput();cancel()
      if e!=nil{err=fmt.Errorf("foreground segmentation failed: %v: %s",e,strings.TrimSpace(string(logs)))}
@@ -716,7 +720,7 @@ func startRenderCutout(){
    }
   }
   matchMu.Lock()
-  if err!=nil{renderStatus="Render unavailable: "+err.Error()+" (source preserved)"}else{renderStatus="Studio-lit faithful render saved: "+output+" | Photographic finishing "+strconv.Itoa(realism)+"%. Inspect hair edges."}
+  if err!=nil{renderStatus="Render unavailable: "+err.Error()+" (source preserved)"}else{renderStatus="Transparent render saved: "+output+" | Photographic finishing "+strconv.Itoa(realism)+"%. Inspect hair edges."}
   matchMu.Unlock()
   postMessage.Call(hwnd,WM_RENDER_DONE,0,0)
  }()
@@ -1895,8 +1899,8 @@ func main(){
  ctl("STATIC","Seam test needs calibrated WWE UV pairs; uncalibrated images are preserved unchanged.",30,580,1000,65,371,0);
  uiBuildTab=3;ctl("STATIC","RENDER CREATOR - PRESERVE ORIGINAL CAW",30,115,800,35,324,0);
  ctl("BUTTON","Import CAW Screenshot",30,180,290,42,321,0);
- ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Faithful Render — automatic cutout","Faithful Render — original character pixels"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Retry Background Removal",30,275,380,42,323,0);ctl("STATIC","Photographic finish (0 = original / 100 = enhanced)",30,326,600,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,0);
- ctl("STATIC","Import to automatically isolate the wrestler. Finish slider adjusts contrast, color and sharpness without changing identity or attire.",30,420,1000,50,322,0);
+ ctl("STATIC","Render mode:",30,235,120,25,326,0);ctl("COMBOBOX","",155,230,360,160,325,CBS_DROPDOWNLIST);for _,mode:=range []string{"Faithful Render — automatic cutout","Faithful Render — original character pixels","Studio Pro — experimental material-aware finish"}{send.Call(ctrls[325],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[325],CB_SETCURSEL,0,0);ctl("BUTTON","Retry Background Removal",30,275,380,42,323,0);ctl("STATIC","Photographic finish (0 = original / 100 = enhanced)",30,326,600,22,0,0);ctl("msctls_trackbar32","",30,350,380,35,327,0);send.Call(ctrls[327],TBM_SETRANGE,1,uintptr(100<<16));send.Call(ctrls[327],TBM_SETPOS,1,0);
+ ctl("STATIC","Import to automatically isolate the wrestler. Choose Studio Pro for experimental material-aware lighting. Faithful Render remains available; neither mode regenerates faces or attire.",30,420,1000,50,322,0);
  uiBuildTab=4;ctl("STATIC","ROSTER DATABASE - SAVED LOCALLY",30,115,900,35,335,0);
  ctl("STATIC","Superstar name",30,180,200,25,336,0);ctl("EDIT","",240,175,420,30,331,WS_BORDER);
  ctl("STATIC","Real picbase / identity",30,230,200,25,337,0);ctl("EDIT","",240,225,420,30,332,WS_BORDER);
