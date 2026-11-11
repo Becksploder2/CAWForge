@@ -917,11 +917,22 @@ func generateLocalAIAttire(description string)(string,error){
  stamp:=strconv.FormatInt(time.Now().UnixNano(),10)
  for _,piece:=range []string{"top","tights","waistband"}{
   out:=filepath.Join(dir,stamp+"_"+piece+"_concept.png")
-  ctx,cancel:=context.WithTimeout(context.Background(),5*time.Minute)
+  ctx,cancel:=context.WithTimeout(context.Background(),15*time.Minute)
   var cmd *exec.Cmd
   if sdErr==nil{cmd=exec.CommandContext(ctx,stableDiffusionPython(filepath.Dir(exe)),sdScript,"--mode","attire","--piece",piece,"--prompt",description,"--output",out);cmd.Env=stableDiffusionEnv(filepath.Dir(exe))}else{cmd=exec.CommandContext(ctx,engine,"--piece",piece,"--prompt",description,"--output",out)}
-  output,runErr:=cmd.CombinedOutput();cancel()
-  if runErr!=nil{return "",fmt.Errorf("local attire engine failed for %s (Python: %s): %v: %s. If dependencies are missing, use Face Texture > Install / Repair AI",piece,stableDiffusionPython(filepath.Dir(exe)),runErr,strings.TrimSpace(string(output)))}
+  output,runErr:=cmd.CombinedOutput()
+  timedOut:=ctx.Err()==context.DeadlineExceeded
+  cancel()
+  if runErr!=nil{
+   logPath:=filepath.Join(dir,stamp+"_"+piece+"_error.log")
+   _=os.WriteFile(logPath,output,0600)
+   lines:=strings.Split(strings.TrimSpace(string(output)),"\n")
+   if len(lines)>24{lines=lines[len(lines)-24:]}
+   detail:=strings.Join(lines,"\n")
+   if timedOut{detail="Generation timed out after 15 minutes. "+detail}
+   if strings.Contains(strings.ToLower(detail),"out of memory"){detail="GPU memory exhausted. "+detail}
+   return "",fmt.Errorf("local attire engine failed for %s (Python: %s): %v\nLast error lines:\n%s\nFull log: %s",piece,stableDiffusionPython(filepath.Dir(exe)),runErr,detail,logPath)
+  }
   file,openErr:=os.Open(out);if openErr!=nil{return "",fmt.Errorf("engine did not create %s: %w",out,openErr)}
   imageData,decodeErr:=png.Decode(file);file.Close()
   if decodeErr!=nil{return "",fmt.Errorf("engine output for %s is not a valid PNG: %w",piece,decodeErr)}
