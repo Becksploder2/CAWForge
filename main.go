@@ -497,18 +497,16 @@ func installOrRepairAI(){
  if err!=nil{alert("Cannot locate CAWForge installation: "+err.Error());return}
  dir:=filepath.Dir(exe)
  installer:=filepath.Join(dir,"Install-CAWForge-AI.cmd")
- if _,err=os.Stat(installer);err!=nil{alert("AI installer missing. Download the complete CAWForge Windows ZIP, not just the EXE.");return}
- // CAWForge is a GUI process: explicitly create a visible console for setup.
- // Launch PowerShell directly rather than nesting an invisible cmd /c wrapper.
- ps:=filepath.Join(dir,"Setup-StableDiffusion.ps1")
- if _,err=os.Stat(ps);err!=nil{alert("AI setup script missing. Extract the complete Windows ZIP.");return}
- cmd:=exec.Command("powershell.exe","-NoLogo","-NoProfile","-NoExit","-ExecutionPolicy","Bypass","-Command",
-  "& { Write-Host 'CAWForge AI Install / Repair' -ForegroundColor Cyan; try { & '"+strings.ReplaceAll(ps,"'","''")+"' ; if(-not $?) { Write-Host 'Setup returned an error.' -ForegroundColor Red } } catch { Write-Host $_ -ForegroundColor Red }; Write-Host 'Review the messages above. You may close this window when finished.' }")
+ if _,err=os.Stat(installer);err!=nil{alert("AI installer missing. Extract the complete CAWForge Windows ZIP, not just the EXE.");return}
+ // Launch the existing interactive batch file in a NEW visible console.
+ // /k keeps diagnostic output on screen even if the installer fails.
+ cmd:=exec.Command("cmd.exe","/d","/k","call",installer)
  cmd.Dir=dir
  cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x00000010}
  if err=cmd.Start();err!=nil{alert("Could not open AI setup window: "+err.Error());return}
- set(215,"AI setup console opened. Read its progress/errors; restart CAWForge after successful installation.")
+ set(215,"AI setup launched in a separate console. If blank, check its title and wait for the initial setup message.")
 }
+
 func runAITexture(){
  set(215,"Face extraction is not yet implemented. Stable Diffusion portrait generation has been disabled to protect facial accuracy. See Face Texture Guide.")
  alert("CAWForge Face Texture: Stable Diffusion portrait generation is disabled because it changes facial features and leaves hair, ears and accessories. Use Face Texture Guide for preparation. A calibrated face-extraction pipeline is still required.")
@@ -584,10 +582,10 @@ func startTexture(){
    }
   }
   matchMu.Lock()
-  if e!=nil{faceTextureStatus="Face scan error: "+e.Error()}else{faceTextureStatus="820x820 face alignment PREVIEW: "+out+" | Not a game-ready UV texture; hair/ears and template calibration remain."}
+  if e!=nil{faceTexturePreviewPath="";faceTextureStatus="Face scan error: "+e.Error()}else{faceTexturePreviewPath=out;faceTextureStatus="820x820 face alignment PREVIEW: "+out+" | Not a game-ready UV texture; hair/ears and template calibration remain."}
   matchMu.Unlock()
   textureBusy=false
-  postMessage.Call(hwnd,WM_MATCH_DONE,0,0)
+  postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
  }()
 }
 
