@@ -9,6 +9,15 @@ function FreeGB([string]$Path) {
   return [math]::Round($drive.AvailableFreeSpace / 1GB, 1)
 }
 if (-not $AIHome) {
+  $configFile = Join-Path $PSScriptRoot 'ai-config.json'
+  if (Test-Path $configFile) {
+    try {
+      $saved = Get-Content $configFile -Raw | ConvertFrom-Json
+      if ($saved.ai_home -and (Test-Path $saved.ai_home)) { $AIHome = $saved.ai_home }
+    } catch { Write-Host 'Existing AI config unreadable; selecting a default location.' -ForegroundColor Yellow }
+  }
+}
+if (-not $AIHome) {
   $candidate = 'E:\CAWForge-AI'
   if (Test-Path 'E:\') { $AIHome = $candidate }
   else { $AIHome = Join-Path $env:LOCALAPPDATA 'CAWForge-AI' }
@@ -16,7 +25,7 @@ if (-not $AIHome) {
 $AIHome = [System.IO.Path]::GetFullPath($AIHome)
 Write-Host "AI installation directory: $AIHome"
 $free = FreeGB $AIHome
-if ($free -lt 20) { throw "Only $free GB free on AI drive. At least 20 GB is recommended. Rerun with -AIHome 'D:\CAWForge-AI' to choose another drive." }
+if ($free -lt 5 -and -not (Test-Path (Join-Path $AIHome '.venv\Scripts\python.exe'))) { throw "Only $free GB free on AI drive. At least 5 GB is needed for a new environment (more for model downloads). Rerun with -AIHome 'D:\CAWForge-AI' to choose another drive." }
 foreach ($sub in @('','Cache','Models','Temp')) { New-Item -ItemType Directory -Force -Path (Join-Path $AIHome $sub) | Out-Null }
 $env:TEMP = Join-Path $AIHome 'Temp'
 $env:TMP = $env:TEMP
@@ -50,26 +59,32 @@ if ($recreate) {
   & py -3.11 -m venv $envPath
   Assert-Success 'Python environment creation'
 }
-& $py -m pip install --upgrade pip --no-cache-dir
-Assert-Success 'pip upgrade'
+Write-Host '[1/6] Checking Python package installer...'
+& $py -m pip --version
+Assert-Success 'pip readiness'
 & $py -c 'import torch; assert torch.cuda.is_available(), "CUDA unavailable"; print("Existing CUDA PyTorch ready:", torch.__version__)'
 if ($LASTEXITCODE -ne 0) {
-  Write-Host 'Installing CUDA PyTorch (first setup or repair)...'
+  Write-Host '[2/6] Installing or repairing CUDA PyTorch...'
   & $py -m pip install --no-cache-dir 'torch==2.5.1' 'torchvision==0.20.1' --index-url https://download.pytorch.org/whl/cu121
   Assert-Success 'CUDA PyTorch installation'
 } else { Write-Host 'Keeping existing working CUDA PyTorch.' }
-& $py -m pip install --no-cache-dir -r (Join-Path $PSScriptRoot 'sd_requirements.txt')
+Write-Host '[3/6] Installing or repairing generative AI libraries...'
+& $py -m pip install -r (Join-Path $PSScriptRoot 'sd_requirements.txt')
 Assert-Success 'AI dependencies installation'
-& $py -m pip install --no-cache-dir 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2' 'opencv-python-headless>=4.8,<4.12'
+Write-Host '[4/6] Installing or repairing face scan, cutout and render libraries...'
+& $py -m pip install 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2' 'opencv-python-headless>=4.8,<4.12' 'Pillow>=10,<13'
 Assert-Success 'Background removal dependencies installation'
-& $py -c 'import sys, numpy, onnxruntime, cv2; from rembg import remove, new_session; print("Cutout dependencies ready:", sys.executable)'
+& $py -c 'import sys, numpy, onnxruntime, cv2, PIL, torch, diffusers, transformers, accelerate, safetensors; from rembg import remove, new_session; print("All CAWForge Python imports ready:", sys.executable)'
+Assert-Success 'Full dependency import verification'
+Write-Host '[5/6] Checking AI backend...'
 Assert-Success 'Background removal import verification'
 & $py (Join-Path $PSScriptRoot 'sd_backend.py') --check
 Assert-Success 'GPU readiness check'
+Write-Host '[6/6] Checking model files...'
 if (-not $SkipModelDownload) {
   & $py -c "from huggingface_hub import snapshot_download; snapshot_download('stable-diffusion-v1-5/stable-diffusion-v1-5', allow_patterns=['*.json','*.txt','*.safetensors','tokenizer/*','scheduler/*','feature_extractor/*'])"
   Assert-Success 'Stable Diffusion model download'
 }
 $config = @{ python = $py; ai_home = $AIHome; hf_home = $env:HF_HOME; temp = $env:TEMP; torch_home = $env:TORCH_HOME }
 [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'ai-config.json'), ($config | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
-Write-Host 'CAWForge AI setup complete. Configuration saved in ai-config.json.' -ForegroundColor Green
+Write-Host 'CAWForge AI setup complete. All required Python modules verified. Configuration saved in ai-config.json.' -ForegroundColor Green
