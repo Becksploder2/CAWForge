@@ -10,11 +10,14 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from collections import deque
 import torch
-from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
 
 MODEL = "stable-diffusion-v1-5/stable-diffusion-v1-5"
 
 def load_pipeline(img2img):
+    try:
+        from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+    except (ImportError, RuntimeError, OSError) as exc:
+        raise RuntimeError("Stable Diffusion dependencies could not load in the selected Python environment. Verify diffusers, transformers, accelerate, and their compatible versions. Original error: " + str(exc)) from exc
     cls = StableDiffusionImg2ImgPipeline if img2img else StableDiffusionPipeline
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU unavailable; install a CUDA-enabled PyTorch build")
@@ -73,6 +76,11 @@ def main():
     args = ap.parse_args()
     if args.check:
         print("CUDA available:", torch.cuda.is_available())
+        try:
+            from diffusers import StableDiffusionPipeline, StableDiffusionImg2ImgPipeline
+            print("Diffusers pipelines: available")
+        except Exception as exc:
+            raise RuntimeError("Diffusers pipeline import failed: " + repr(exc)) from exc
         if not torch.cuda.is_available():
             raise SystemExit("CUDA-enabled PyTorch or NVIDIA GPU unavailable")
         return
