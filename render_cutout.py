@@ -54,7 +54,7 @@ def studio_light(image, strength):
     """Non-generative softbox/key-fill treatment using the existing pixels."""
     if strength<=0:
         return image
-    rgba=np.asarray(image.convert("RGBA"),dtype=np.uint8)
+    rgba=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
     alpha=rgba[:,:,3].astype(np.float32)/255.0
     ys,xs=np.where(alpha>0.5)
     if len(xs)<100:
