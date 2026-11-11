@@ -502,13 +502,18 @@ func installOrRepairAI(){
  dir:=filepath.Dir(exe)
  installer:=filepath.Join(dir,"Install-CAWForge-AI.cmd")
  if _,err=os.Stat(installer);err!=nil{alert("AI installer missing. Extract the complete CAWForge Windows ZIP, not just the EXE.");return}
- // Launch the existing interactive batch file in a NEW visible console.
- // /k keeps diagnostic output on screen even if the installer fails.
- cmd:=exec.Command("cmd.exe","/d","/k","call",installer)
- cmd.Dir=dir
- cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x00000010}
- if err=cmd.Start();err!=nil{alert("Could not open AI setup window: "+err.Error());return}
- set(215,"AI setup launched in a separate console. If blank, check its title and wait for the initial setup message.")
+ if _,err=os.Stat(filepath.Join(dir,"Setup-StableDiffusion.ps1"));err!=nil{alert("Setup-StableDiffusion.ps1 missing. Extract the complete CAWForge Windows ZIP.");return}
+ // Launch through the Windows shell rather than inheriting GUI-process
+ // standard handles. CREATE_NEW_CONSOLE alone can leave cmd.exe blank.
+ shellExecute:=syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW")
+ result,_,callErr:=shellExecute.Call(hwnd,
+  uintptr(unsafe.Pointer(ptr("open"))),
+  uintptr(unsafe.Pointer(ptr(installer))),
+  0,
+  uintptr(unsafe.Pointer(ptr(dir))),
+  1)
+ if result<=32{alert(fmt.Sprintf("Windows could not launch the AI installer (ShellExecute code %d): %v. Try double-clicking Install-CAWForge-AI.cmd in %s",result,callErr,dir));return}
+ set(215,"Windows opened the CAWForge AI installer. It should immediately show a setup banner; leave the window open for progress/errors.")
 }
 
 func runAITexture(){
