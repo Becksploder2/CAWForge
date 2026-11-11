@@ -6,13 +6,47 @@ import argparse
 from pathlib import Path
 import numpy as np
 from PIL import Image
+import cv2
 from rembg import remove, new_session
+
+def refine_mask(mask):
+    """Remove isolated segmentation debris while retaining the main silhouette."""
+    solid=(mask>=96).astype(np.uint8)
+    count,labels,stats,_=cv2.connectedComponentsWithStats(solid,8)
+    if count<=1:
+        return mask
+    largest=1+int(np.argmax(stats[1:,cv2.CC_STAT_AREA]))
+    if stats[largest,cv2.CC_STAT_AREA]<0.01*mask.size:
+        return mask
+    # Keep only the main connected silhouette; suppress distant speckles.
+    keep=(labels==largest).astype(np.uint8)
+    # Close tiny pinholes only; do not bridge broad spaces between limbs.
+    keep=cv2.morphologyEx(keep,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
+    # Soften pixel-staircase edges by <=1px while leaving the body opaque.
+    soft=cv2.GaussianBlur(keep.astype(np.float32),(3,3),0.65)
+    return np.uint8(np.clip(soft*255,0,255))
+
+
+def crop_to_subject(image):
+    alpha=np.asarray(image.getchannel("A"))
+    ys,xs=np.where(alpha>24)
+    if len(xs)==0:
+        return image
+    left,right=int(xs.min()),int(xs.max())+1
+    top,bottom=int(ys.min()),int(ys.max())+1
+    subject_w,subject_h=right-left,bottom-top
+    pad_x=max(12,int(subject_w*0.07))
+    pad_y=max(12,int(subject_h*0.05))
+    return image.crop((max(0,left-pad_x),max(0,top-pad_y),
+                       min(image.width,right+pad_x),min(image.height,bottom+pad_y)))
+
 
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("source")
     p.add_argument("destination")
     p.add_argument("--realism",type=int,default=0)
+    p.add_argument("--no-crop",action="store_true",help="Keep original canvas dimensions")
     args=p.parse_args()
     source=Image.open(args.source).convert("RGBA")
     w,h=source.size
@@ -24,12 +58,13 @@ def main():
         print("Existing transparency detected; preserving original pixels")
     else:
         session=new_session("u2netp")
-        cut=remove(source,session=session,only_mask=True,post_process_mask=True)
+        cut=remove(source,session=session,only_mask=True,post_process_mask=False)
         mask=np.asarray(cut.convert("L"),dtype=np.uint8)
         opaque=np.mean(mask>=245)
         visible=np.mean(mask>16)
         if opaque<0.015 or visible<0.035 or visible>0.80:
             raise RuntimeError(f"Segmentation mask failed safety check: opaque={opaque:.3f}, visible={visible:.3f}; source unchanged")
+        mask=refine_mask(mask)
         # Do not touch original color channels. Alpha alone is replaced.
         output=source.copy()
         output.putalpha(Image.fromarray(mask,"L"))
@@ -40,7 +75,6 @@ def main():
         alpha=output.getchannel("A")
         rgb=output.convert("RGB")
         # Work on luminance to avoid recoloring gear, tattoos or makeup.
-        import cv2
         arr=np.asarray(rgb,dtype=np.uint8)
         lab=cv2.cvtColor(arr,cv2.COLOR_RGB2LAB)
         l,ac,bc=cv2.split(lab)
@@ -58,6 +92,8 @@ def main():
         finished=cv2.addWeighted(arr,1-0.92*level,detail,0.92*level,0)
         output=Image.fromarray(finished,"RGB").convert("RGBA")
         output.putalpha(alpha)
+    if not args.no_crop:
+        output=crop_to_subject(output)
     target=Path(args.destination)
     target.parent.mkdir(parents=True,exist_ok=True)
     output.save(target,"PNG")
