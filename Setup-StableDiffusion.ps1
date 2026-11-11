@@ -56,9 +56,9 @@ Assert-Success 'pip upgrade'
 Assert-Success 'CUDA PyTorch installation'
 & $py -m pip install --no-cache-dir -r (Join-Path $PSScriptRoot 'sd_requirements.txt')
 Assert-Success 'AI dependencies installation'
-& $py -m pip install --no-cache-dir 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2'
+& $py -m pip install --no-cache-dir 'rembg==2.0.67' 'onnxruntime>=1.18,<2' 'numpy<2' 'opencv-python-headless>=4.8,<4.12'
 Assert-Success 'Background removal dependencies installation'
-& $py -c 'import sys, numpy, onnxruntime; from rembg import remove, new_session; print("Cutout dependencies ready:", sys.executable)'
+& $py -c 'import sys, numpy, onnxruntime, cv2; from rembg import remove, new_session; print("Cutout dependencies ready:", sys.executable)'
 Assert-Success 'Background removal import verification'
 & $py (Join-Path $PSScriptRoot 'sd_backend.py') --check
 Assert-Success 'GPU readiness check'
