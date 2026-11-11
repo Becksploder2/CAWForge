@@ -50,11 +50,48 @@ def crop_to_subject(image):
                        min(image.width,right+pad_x),min(image.height,bottom+pad_y)))
 
 
+def studio_light(image, strength):
+    """Non-generative softbox/key-fill treatment using the existing pixels."""
+    if strength<=0:
+        return image
+    rgba=np.asarray(image.convert("RGBA"),dtype=np.uint8)
+    alpha=rgba[:,:,3].astype(np.float32)/255.0
+    ys,xs=np.where(alpha>0.5)
+    if len(xs)<100:
+        return image
+    h,w=alpha.shape
+    x0,x1=xs.min(),xs.max()
+    y0,y1=ys.min(),ys.max()
+    sw=max(1,x1-x0)
+    sh=max(1,y1-y0)
+    yy,xx=np.mgrid[0:h,0:w].astype(np.float32)
+    # Broad softbox from upper left, weaker fill from right.
+    key=np.exp(-(((xx-(x0+0.20*sw))/(0.95*sw))**2+
+                 ((yy-(y0+0.12*sh))/(1.05*sh))**2)*1.25)
+    fill=np.exp(-(((xx-(x0+0.96*sw))/(1.20*sw))**2+
+                  ((yy-(y0+0.48*sh))/(1.35*sh))**2)*1.6)
+    # Local edge glow, capped so dark hair is not outlined artificially.
+    interior=cv2.distanceTransform((alpha>0.5).astype(np.uint8),cv2.DIST_L2,3)
+    rim=np.exp(-interior/12.0)*(alpha>0.5)
+    rim*=np.clip((xx-x0)/sw,0,1)
+    # Apply only luminance changes: hue, logos and tattoos remain unchanged.
+    rgb=rgba[:,:,:3].copy()
+    lab=cv2.cvtColor(rgb,cv2.COLOR_RGB2LAB)
+    lum=lab[:,:,0].astype(np.float32)
+    light=(key*12.0+fill*4.5+rim*5.0-3.0)*strength
+    # Protect extreme highlights from clipping.
+    light*=np.clip((255.0-lum)/65.0,0,1)
+    lab[:,:,0]=np.uint8(np.clip(lum+light,0,255))
+    rgba[:,:,:3]=cv2.cvtColor(lab,cv2.COLOR_LAB2RGB)
+    return Image.fromarray(rgba,"RGBA")
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("source")
     p.add_argument("destination")
     p.add_argument("--realism",type=int,default=0)
+    p.add_argument("--studio",action="store_true",help="Apply non-generative studio lighting")
     p.add_argument("--no-crop",action="store_true",help="Keep original canvas dimensions")
     args=p.parse_args()
     source=Image.open(args.source).convert("RGBA")
@@ -101,6 +138,8 @@ def main():
         finished=cv2.addWeighted(arr,1-0.92*level,detail,0.92*level,0)
         output=Image.fromarray(finished,"RGB").convert("RGBA")
         output.putalpha(alpha)
+    if args.studio:
+        output=studio_light(output,level)
     if not args.no_crop:
         output=crop_to_subject(output)
     output=clear_hidden_background(output)
