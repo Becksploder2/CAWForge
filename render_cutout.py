@@ -137,12 +137,49 @@ def material_detail(image, strength):
     return Image.fromarray(rgba,"RGBA")
 
 
+def studio_pro(image, strength):
+    """Material-aware local photographic finish; no generated pixels or geometry."""
+    if strength<=0:
+        return image
+    rgba=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
+    rgb=rgba[:,:,:3]
+    hsv=cv2.cvtColor(rgb,cv2.COLOR_RGB2HSV)
+    lab=cv2.cvtColor(rgb,cv2.COLOR_RGB2LAB)
+    l=lab[:,:,0].astype(np.float32)
+    alpha=rgba[:,:,3].astype(np.float32)/255.0
+    # Soft classifications rather than hard masks, avoiding seams in the image.
+    hue=hsv[:,:,0].astype(np.float32)
+    sat=hsv[:,:,1].astype(np.float32)
+    val=hsv[:,:,2].astype(np.float32)
+    skin=np.clip((hue-2)/8,0,1)*np.clip((28-hue)/9,0,1)
+    skin*=np.clip((sat-25)/45,0,1)*np.clip((205-sat)/45,0,1)
+    skin*=np.clip((val-65)/50,0,1)
+    dark=np.clip((125-val)/65,0,1)*np.clip((145-sat)/85,0,1)
+    material=np.clip((sat-70)/90,0,1)*(1-skin)
+    # Multi-scale local shading: broad shape, then fine existing surface detail.
+    broad=cv2.GaussianBlur(l,(0,0),10.0)
+    medium=cv2.GaussianBlur(l,(0,0),2.0)
+    fine=l-cv2.GaussianBlur(l,(0,0),0.8)
+    shape=np.clip(l-broad,-18,18)
+    mid=np.clip(l-medium,-11,11)
+    # Skin: preserve soft facial gradients; hair/gear: emphasize existing detail.
+    boost=(0.20*skin+0.58*dark+0.64*material)
+    delta=(shape*(0.22*skin+0.26*material)+
+           mid*boost+fine*(0.10*skin+0.22*dark+0.30*material))
+    # Never alter fully transparent pixels, and cap adjustment to avoid halos.
+    l=np.clip(l+np.clip(delta*strength,-12,12)*alpha,0,255)
+    lab[:,:,0]=l.astype(np.uint8)
+    rgba[:,:,:3]=cv2.cvtColor(lab,cv2.COLOR_LAB2RGB)
+    return Image.fromarray(rgba,"RGBA")
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("source")
     p.add_argument("destination")
     p.add_argument("--realism",type=int,default=0)
     p.add_argument("--studio",action="store_true",help="Apply non-generative studio lighting")
+    p.add_argument("--studio-pro",action="store_true",help="Experimental material-aware studio finish")
     p.add_argument("--no-crop",action="store_true",help="Keep original canvas dimensions")
     args=p.parse_args()
     source=Image.open(args.source).convert("RGBA")
@@ -190,9 +227,11 @@ def main():
         finished=cv2.addWeighted(arr,1-0.92*level,detail,0.92*level,0)
         output=Image.fromarray(finished,"RGB").convert("RGBA")
         output.putalpha(alpha)
-    if args.studio:
+    if args.studio or args.studio_pro:
         output=studio_light(output,level)
         output=material_detail(output,level)
+    if args.studio_pro:
+        output=studio_pro(output,level)
     if not args.no_crop:
         output=crop_to_subject(output)
     output=clear_hidden_background(output)
