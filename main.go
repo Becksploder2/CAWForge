@@ -576,13 +576,22 @@ func startTexture(){
       cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,photo,out)
       cmd.Env=stableDiffusionEnv(dir)
       logs,ce:=cmd.CombinedOutput();cancel()
-      if ce!=nil{e=fmt.Errorf("face scan failed: %v: %s",ce,strings.TrimSpace(string(logs)))}
+      if ce!=nil{
+       detail:=strings.TrimSpace(string(logs))
+       if detail==""{detail="No Python output; verify the selected Python environment and installed image dependencies."}
+       e=fmt.Errorf("face scan failed using %s: %v: %s",stableDiffusionPython(dir),ce,detail)
+      }
      }
     }
    }
   }
   matchMu.Lock()
-  if e!=nil{faceTexturePreviewPath="";faceTextureStatus="Face scan error: "+e.Error()}else{faceTexturePreviewPath=out;faceTextureStatus="820x820 face alignment PREVIEW: "+out+" | Not a game-ready UV texture; hair/ears and template calibration remain."}
+  if e!=nil{
+   faceTexturePreviewPath=""
+   faceTextureStatus="Face scan error: "+e.Error()
+   // The status label is narrow: show the complete traceback in a dialog.
+   // Post to the UI thread; never display a Win32 dialog from this worker.
+  }else{faceTexturePreviewPath=out;faceTextureStatus="820x820 face alignment PREVIEW: "+out+" | Not a game-ready UV texture; hair/ears and template calibration remain."}
   matchMu.Unlock()
   textureBusy=false
   postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
@@ -1666,7 +1675,7 @@ case WM_EXPORT_DONE:
  morphExportBusy=false;set(25,status);return 0
 case WM_TEXTURE_PREVIEW_READY:applyTexturePreview();return 0
 case WM_TEXTURE_DONE:
- matchMu.Lock();status,path:=faceTextureStatus,faceTexturePreviewPath;matchMu.Unlock();if path!=""{lastFacePNG=path};textureBusy=false;set(203,status);if path!=""{showTexturePreview(path)};return 0
+ matchMu.Lock();status,path:=faceTextureStatus,faceTexturePreviewPath;matchMu.Unlock();if path!=""{lastFacePNG=path};textureBusy=false;set(203,status);if path!=""{showTexturePreview(path)}else if strings.HasPrefix(status,"Face scan error:"){alert(status)};return 0
 case WM_CAL_DONE:
  calMu.Lock();message:=calibrationMessage;calMu.Unlock();calibrationRunning=false;set(41,message);if imagePath!=""{matchPhoto()};return 0
 case WM_PICKER_DONE:
