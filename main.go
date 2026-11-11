@@ -541,8 +541,37 @@ func generateEditedFaceTexture(photo,out string)error{
  return png.Encode(output,dst)
 }
 func startTexture(){
- set(203,"Face texture extraction is not yet available. The previous generator produced portraits, not usable UV textures. See Face Texture Guide.")
- alert("This generator is temporarily disabled: it cannot reliably produce a hairless, template-aligned WWE 2K26 face texture. Use Face Texture Guide for correct input requirements.")
+ if textureBusy{return}
+ if imagePath==""{alert("Import a straight-on face photo first.");return}
+ textureBusy=true
+ photo:=imagePath
+ set(203,"Scanning face and preparing 820 x 820 alignment preview...")
+ go func(){
+  exe,e:=os.Executable()
+  var out string
+  if e==nil{
+   dir:=filepath.Dir(exe)
+   script:=filepath.Join(dir,"face_scan_preview.py")
+   if _,se:=os.Stat(script);se!=nil{e=fmt.Errorf("face_scan_preview.py missing beside CAWForge.exe: %w",se)}else{
+    home,he:=os.UserHomeDir();if he!=nil{e=he}else{
+     folder:=filepath.Join(home,"Documents","CAWForge","FaceScans")
+     if e=os.MkdirAll(folder,0755);e==nil{
+      out=filepath.Join(folder,fmt.Sprintf("Face_Scan_PREVIEW_%d.png",time.Now().UnixNano()))
+      ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second)
+      cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),script,photo,out)
+      cmd.Env=stableDiffusionEnv(dir)
+      logs,ce:=cmd.CombinedOutput();cancel()
+      if ce!=nil{e=fmt.Errorf("face scan failed: %v: %s",ce,strings.TrimSpace(string(logs)))}
+     }
+    }
+   }
+  }
+  matchMu.Lock()
+  if e!=nil{faceTextureStatus="Face scan error: "+e.Error()}else{faceTextureStatus="820x820 face alignment PREVIEW: "+out+" | Not a game-ready UV texture; hair/ears and template calibration remain."}
+  matchMu.Unlock()
+  textureBusy=false
+  postMessage.Call(hwnd,WM_MATCH_DONE,0,0)
+ }()
 }
 
 var seamAuto=true
@@ -1862,12 +1891,12 @@ func main(){
  ctl("BUTTON","Mode: Full Body (click for Singlet)",30,545,500,38,372,0);
  ctl("STATIC","Definition adjusts contrast in existing skin shading only; it cannot create new muscles or identify body parts. No DDS conversion.",30,460,1020,85,354,0);
  uiBuildTab=1;ctl("BUTTON","Import Face Photo",30,295,340,38,217,0);
- ctl("BUTTON","Face Texture (not yet ready)",30,345,340,38,201,0);
+ ctl("BUTTON","Create Face Scan Preview",30,345,340,38,201,0);
  ctl("BUTTON","Save Face As...",30,490,340,38,366,0);
  ctl("STATIC","Texture AI engine:",30,395,160,28,218,0);
  ctl("COMBOBOX","",195,392,205,120,219,CBS_DROPDOWNLIST);
  for _,mode:=range []string{"Local AI (default; requires installed engine)","OpenAI API (optional; paid)"}{send.Call(ctrls[219],CB_ADDSTRING,0,uintptr(unsafe.Pointer(ptr(mode))))};send.Call(ctrls[219],CB_SETCURSEL,0,0);
- ctl("STATIC","Import a front-facing photo. Local AI is the default; install local-engine.exe and a compatible workflow first. Cloud API is optional. No portrait-crop fallback.",30,645,980,45,203,0);
+ ctl("STATIC","Import a clear front-facing photo. Scan Preview creates a centered 820x820 alignment image; it is NOT a finished UV texture.",30,645,980,45,203,0);
  ctl("STATIC","FACE TEXTURE PREVIEW (320 x 320)",425,110,500,28,204,0);
  ctl("STATIC","",425,150,320,320,205,SS_BITMAP|WS_BORDER);
  ctl("STATIC","Face output: 820 x 820 PNG. Template fitting requires calibrated landmarks.",425,480,630,42,206,0);
