@@ -498,10 +498,16 @@ func installOrRepairAI(){
  dir:=filepath.Dir(exe)
  installer:=filepath.Join(dir,"Install-CAWForge-AI.cmd")
  if _,err=os.Stat(installer);err!=nil{alert("AI installer missing. Download the complete CAWForge Windows ZIP, not just the EXE.");return}
- cmd:=exec.Command("cmd.exe","/c",installer)
+ // CAWForge is a GUI process: explicitly create a visible console for setup.
+ // Launch PowerShell directly rather than nesting an invisible cmd /c wrapper.
+ ps:=filepath.Join(dir,"Setup-StableDiffusion.ps1")
+ if _,err=os.Stat(ps);err!=nil{alert("AI setup script missing. Extract the complete Windows ZIP.");return}
+ cmd:=exec.Command("powershell.exe","-NoLogo","-NoProfile","-NoExit","-ExecutionPolicy","Bypass","-Command",
+  "& { Write-Host 'CAWForge AI Install / Repair' -ForegroundColor Cyan; try { & '"+strings.ReplaceAll(ps,"'","''")+"' ; if(-not $?) { Write-Host 'Setup returned an error.' -ForegroundColor Red } } catch { Write-Host $_ -ForegroundColor Red }; Write-Host 'Review the messages above. You may close this window when finished.' }")
  cmd.Dir=dir
- if err=cmd.Start();err!=nil{alert("Could not start AI installer: "+err.Error());return}
- set(215,"AI installer opened. Follow its prompts; restart CAWForge when installation completes.")
+ cmd.SysProcAttr=&syscall.SysProcAttr{CreationFlags:0x00000010}
+ if err=cmd.Start();err!=nil{alert("Could not open AI setup window: "+err.Error());return}
+ set(215,"AI setup console opened. Read its progress/errors; restart CAWForge after successful installation.")
 }
 func runAITexture(){
  set(215,"Face extraction is not yet implemented. Stable Diffusion portrait generation has been disabled to protect facial accuracy. See Face Texture Guide.")
