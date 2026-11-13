@@ -916,6 +916,12 @@ func checkAttirePython(dir string)error{
  return nil
 }
 func generateLocalAIAttire(description string)(string,error){
+ // The SD 1.5 text-to-image path creates arbitrary figures/garments rather
+ // than WWE 2K26 UV artwork. Disable it until a template-guided engine is wired.
+ // Keep SD available for Render Creator; do not produce misleading concepts.
+ return "",fmt.Errorf("Legacy Stable Diffusion attire generation is disabled: it produces illustrations instead of usable WWE 2K26 textures. Qwen template-guided generation is not connected yet. Render Creator remains available.")
+}
+func legacyGenerateLocalAIAttireDisabled(description string)(string,error){
  engine:=localAttireEngine()
  exe,_:=os.Executable();sdScript:=filepath.Join(filepath.Dir(exe),"sd_backend.py")
  _,sdErr:=os.Stat(sdScript)
