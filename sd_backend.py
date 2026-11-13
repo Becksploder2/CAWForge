@@ -128,11 +128,30 @@ def main():
         if not args.piece:
             ap.error("--piece required for attire mode")
         pipe = load_pipeline(False)
-        prompt = (f"flat 2D seamless professional wrestling {args.piece} fabric graphic design, "
-                  "orthographic texture artwork only, no garment or person, no model, "
-                  "no text, no logos, no shadows, " + args.prompt)
-        result = pipe(prompt=prompt, negative_prompt="person, body, clothing mockup, shirt, pants, mannequin, words, letters, watermark",
-                      width=512, height=512, guidance_scale=7, num_inference_steps=25).images[0]
+        # Do not put garment names (especially "top") into the image prompt.
+        # They bias SD1.5 toward repeating pictures of shirts or bras.
+        panel_purpose = {
+            "top": "upper torso artwork panel",
+            "tights": "lower body artwork panel",
+            "waistband": "narrow horizontal trim artwork panel",
+        }[args.piece]
+        prompt = (
+            "flat two dimensional vector-style graphic design elements on a single clean canvas, "
+            "abstract athletic stripes, angular accents and motifs, crisp isolated shapes, "
+            "clean negative space, no fabric texture, no product photograph, "
+            "one coherent coordinated graphic composition, "
+            + panel_purpose + ", " + args.prompt
+        )
+        negative = (
+            "clothing, garments, sports bra, bra, shirt, crop top, jersey, shorts, "
+            "leggings, tights, pants, waistband garment, dress, bodysuit, uniform, "
+            "fashion product, model, mannequin, human, person, torso, "
+            "repeated objects, tiled clothing, catalog, collage, mockup, "
+            "photo, 3d render, words, lettering, watermark"
+        )
+        result = pipe(prompt=prompt, negative_prompt=negative,
+                      width=512, height=512, guidance_scale=8,
+                      num_inference_steps=30).images[0]
         result.save(out, "PNG")
     print(str(out))
 
