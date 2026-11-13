@@ -1702,7 +1702,17 @@ case WM_MATCH_DONE:
 case WM_BODY_TEXTURE_DONE:matchMu.Lock();status:=bodyTextureStatus;path:=lastBodyPNG;matchMu.Unlock();_ = path;set(354,status);return 0
 case WM_RENDER_DONE:matchMu.Lock();status:=renderStatus;matchMu.Unlock();renderBusy=false;set(322,status);return 0
 case WM_GRAPHIC_DONE:
- matchMu.Lock();status:=graphicStatus;matchMu.Unlock();graphicBusy=false;set(306,status);set(371,status);return 0
+ matchMu.Lock();status:=graphicStatus;matchMu.Unlock()
+ graphicBusy=false;set(306,status);set(371,status)
+ if strings.HasPrefix(status,"Three attire ARTWORK CONCEPTS saved in: "){
+  folder:=strings.TrimPrefix(status,"Three attire ARTWORK CONCEPTS saved in: ")
+  if cut:=strings.Index(folder," | ");cut>=0{folder=folder[:cut]}
+  if info,err:=os.Stat(folder);err==nil&&info.IsDir(){
+   // Open generated files immediately instead of hiding the result in status text.
+   _=exec.Command("explorer.exe",folder).Start()
+  }else{alert("CAWForge reported a saved attire folder but it could not be found: "+folder)}
+ }
+ return 0
 case WM_AI_DONE:
  matchMu.Lock();status,path:=aiResult,aiOutput;matchMu.Unlock();if path!=""{lastFacePNG=path};aiBusy=false;set(215,status);if path!=""{showTexturePreview(path)};return 0
 case WM_EXPORT_DONE:
