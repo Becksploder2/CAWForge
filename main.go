@@ -466,33 +466,43 @@ type aiRuntimeConfig struct {
  Temp string `json:"temp"`
  TorchHome string `json:"torch_home"`
 }
+func locateAIHome(dir string) string {
+ data,_:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
+ var cfg aiRuntimeConfig
+ _=json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg)
+ candidates:=[]string{}
+ if cfg.AIHome!=""{candidates=append(candidates,cfg.AIHome)}
+ if cfg.Python!=""{candidates=append(candidates,filepath.Dir(filepath.Dir(filepath.Dir(cfg.Python))))}
+ for drive:='D';drive<='Z';drive++{candidates=append(candidates,string(drive)+":\\CAWForge-AI")}
+ candidates=append(candidates,filepath.Join(dir,"CAWForge-AI"))
+ for _,home:=range candidates{
+  py:=filepath.Join(home,".venv","Scripts","python.exe")
+  if info,err:=os.Stat(py);err==nil&&!info.IsDir(){return home}
+ }
+ return ""
+}
 func stableDiffusionPython(dir string)string{
- configPath:=filepath.Join(dir,"ai-config.json")
- data,err:=os.ReadFile(configPath)
+ if home:=locateAIHome(dir);home!=""{return filepath.Join(home,".venv","Scripts","python.exe")}
+ data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
  if err==nil{
   var cfg aiRuntimeConfig
-  if e:=json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg);e!=nil{
-   return filepath.Join(dir,"CAWForge_AI_CONFIG_INVALID_"+strings.ReplaceAll(e.Error(),":","_"))
-  }
-  if cfg.Python==""{return filepath.Join(dir,"CAWForge_AI_CONFIG_MISSING_PYTHON")}
-  if info,e:=os.Stat(cfg.Python);e==nil&&!info.IsDir(){return cfg.Python}
-  return cfg.Python // Explicit error from process launch; never fall back to stale C: Python.
+  if json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg)==nil&&cfg.Python!=""{return cfg.Python}
  }
- // Default to the external AI installation if present, even without config.
- external:=filepath.Join("E:\\","CAWForge-AI",".venv","Scripts","python.exe")
- if info,e:=os.Stat(external);e==nil&&!info.IsDir(){return external}
- venv:=filepath.Join(dir,".venv","Scripts","python.exe")
- if info,e:=os.Stat(venv);e==nil&&!info.IsDir(){return venv}
  return "python"
 }
 func stableDiffusionEnv(dir string)[]string{
  env:=os.Environ()
- data,err:=os.ReadFile(filepath.Join(dir,"ai-config.json"))
- if err!=nil{return env}
- var cfg aiRuntimeConfig
- if json.Unmarshal(bytes.TrimPrefix(data,[]byte{0xEF,0xBB,0xBF}),&cfg)!=nil{return env}
- for _,pair:=range [][2]string{{"HF_HOME",cfg.HFHome},{"TORCH_HOME",cfg.TorchHome},{"TEMP",cfg.Temp},{"TMP",cfg.Temp}}{
-  if pair[1]!=""{env=append(env,pair[0]+"="+pair[1])}
+ home:=locateAIHome(dir)
+ if home==""{return env}
+ for _,pair:=range [][2]string{
+  {"HF_HOME",filepath.Join(home,"Models")},
+  {"HF_HUB_CACHE",filepath.Join(home,"Models","hub")},
+  {"TORCH_HOME",filepath.Join(home,"Models","torch")},
+  {"TEMP",filepath.Join(home,"Temp")},
+  {"TMP",filepath.Join(home,"Temp")},
+  {"PIP_CACHE_DIR",filepath.Join(home,"Cache")},
+ }{
+  env=append(env,pair[0]+"="+pair[1])
  }
  return env
 }
