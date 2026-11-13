@@ -107,9 +107,17 @@ def main():
         face_patch=preview[yy0:yy1,xx0:xx1]
         dst_w=560;dst_h=590
         face_patch=cv2.resize(face_patch,(dst_w,dst_h),interpolation=cv2.INTER_LANCZOS4)
-        mask=np.zeros((dst_h,dst_w),dtype=np.float32)
-        cv2.ellipse(mask,(dst_w//2,dst_h//2),(int(dst_w*0.47),int(dst_h*0.47)),0,0,360,1.0,-1)
-        mask=cv2.GaussianBlur(mask,(0,0),sigmaX=35,sigmaY=35)[:,:,None]
+        # Use a full rectangular skin region with a narrow feathered border.
+        # An elliptical mask makes the face look like a circular sticker.
+        feather_x=max(18,int(dst_w*0.09))
+        feather_y=max(18,int(dst_h*0.09))
+        dx=np.minimum(np.arange(dst_w),np.arange(dst_w)[::-1]).astype(np.float32)
+        dy=np.minimum(np.arange(dst_h),np.arange(dst_h)[::-1]).astype(np.float32)
+        wx=np.clip(dx/feather_x,0,1)
+        wy=np.clip(dy/feather_y,0,1)
+        wx=wx*wx*(3-2*wx)
+        wy=wy*wy*(3-2*wy)
+        mask=(wy[:,None]*wx[None,:])[:,:,None]
         top=(820-dst_h)//2;left=(820-dst_w)//2
         region=base[top:top+dst_h,left:left+dst_w].astype(np.float32)
         base[top:top+dst_h,left:left+dst_w]=np.uint8(np.clip(face_patch.astype(np.float32)*mask+region*(1-mask),0,255))
