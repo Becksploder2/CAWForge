@@ -8,18 +8,31 @@ function FreeGB([string]$Path) {
   if (-not $drive.IsReady) { throw "Drive $root is not ready" }
   return [math]::Round($drive.AvailableFreeSpace / 1GB, 1)
 }
+# Prefer an existing installation, even if Windows reassigned its drive letter.
 if (-not $AIHome) {
   $configFile = Join-Path $PSScriptRoot 'ai-config.json'
   if (Test-Path $configFile) {
     try {
       $saved = Get-Content $configFile -Raw | ConvertFrom-Json
-      if ($saved.ai_home -and (Test-Path $saved.ai_home)) { $AIHome = $saved.ai_home }
-    } catch { Write-Host 'Existing AI config unreadable; selecting a default location.' -ForegroundColor Yellow }
+      if ($saved.ai_home -and (Test-Path (Join-Path $saved.ai_home '.venv\Scripts\python.exe'))) {
+        $AIHome = $saved.ai_home
+      }
+    } catch { Write-Host 'Existing AI configuration is unreadable; searching drives.' -ForegroundColor Yellow }
   }
 }
 if (-not $AIHome) {
-  $candidate = 'E:\CAWForge-AI'
-  if (Test-Path 'E:\') { $AIHome = $candidate }
+  foreach ($letter in 'D'..'Z') {
+    $candidate = "${letter}:\CAWForge-AI"
+    if (Test-Path (Join-Path $candidate '.venv\Scripts\python.exe')) {
+      $AIHome = $candidate
+      Write-Host "Found existing AI installation: $AIHome" -ForegroundColor Green
+      break
+    }
+  }
+}
+if (-not $AIHome) {
+  if (Test-Path 'F:\') { $AIHome = 'F:\CAWForge-AI' }
+  elseif (Test-Path 'E:\') { $AIHome = 'E:\CAWForge-AI' }
   else { $AIHome = Join-Path $env:LOCALAPPDATA 'CAWForge-AI' }
 }
 $AIHome = [System.IO.Path]::GetFullPath($AIHome)
