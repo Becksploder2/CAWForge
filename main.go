@@ -574,46 +574,66 @@ func generateEditedFaceTexture(photo,out string)error{
  output,err:=os.Create(out);if err!=nil{return err};defer output.Close()
  return png.Encode(output,dst)
 }
+// Face Texture uses the local Qwen/ComfyUI bridge, never the old photo-crop
+// preview. Configuration is an API-exported ComfyUI workflow and node IDs.
+type QwenFaceConfig struct {
+ Workflow string `json:"workflow"`
+ Server string `json:"server"`
+ TemplateNode string `json:"template_node"`
+ PhotoNode string `json:"photo_node"`
+ PromptNode string `json:"prompt_node"`
+}
 func startTexture(){
  if textureBusy{return}
- if faceSourcePhoto==""{alert("Import the real face photo in Face Texture first.");return}
+ if faceSourcePhoto==""{alert("Import a real face reference photo first.");return}
+ if faceUVTemplate==""{alert("Select a WWE 2K26 face UV template first. Qwen needs the template and the photo.");return}
  textureBusy=true
  photo:=faceSourcePhoto
  uv:=faceUVTemplate
- set(203,"Preparing face scan from "+filepath.Base(photo)+"...")
+ set(203,"Generating face texture with Qwen (ComfyUI)...")
  go func(){
   exe,e:=os.Executable()
   var out string
   if e==nil{
    dir:=filepath.Dir(exe)
-   script:=filepath.Join(dir,"face_scan_preview.py")
-   if _,se:=os.Stat(script);se!=nil{e=fmt.Errorf("face_scan_preview.py missing beside CAWForge.exe: %w",se)}else{
-    home,he:=os.UserHomeDir();if he!=nil{e=he}else{
-     folder:=filepath.Join(home,"Documents","CAWForge","FaceScans")
-     if e=os.MkdirAll(folder,0755);e==nil{
-      out=filepath.Join(folder,fmt.Sprintf("Face_Scan_PREVIEW_%d.png",time.Now().UnixNano()))
-      ctx,cancel:=context.WithTimeout(context.Background(),90*time.Second)
-      args:=[]string{script,photo,out}
-      if uv!=""{args=append(args,"--template",uv)}
-      cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),args...)
-      cmd.Env=stableDiffusionEnv(dir)
-      logs,ce:=cmd.CombinedOutput();cancel()
-      if ce!=nil{
-       detail:=strings.TrimSpace(string(logs))
-       if detail==""{detail="No Python output; verify the selected Python environment and installed image dependencies."}
-       e=fmt.Errorf("face scan failed using %s: %v: %s",stableDiffusionPython(dir),ce,detail)
+   script:=filepath.Join(dir,"qwen_backend.py")
+   configPath:=filepath.Join(dir,"qwen_face_config.json")
+   var cfg QwenFaceConfig
+   if _,se:=os.Stat(script);se!=nil{e=fmt.Errorf("qwen_backend.py missing beside CAWForge.exe: %w",se)}
+   if e==nil{
+    data,re:=os.ReadFile(configPath)
+    if re!=nil{e=fmt.Errorf("Qwen face setup required: create %s with your ComfyUI workflow and node IDs: %w",configPath,re)}else if re=json.Unmarshal(data,&cfg);re!=nil{e=fmt.Errorf("invalid qwen_face_config.json: %w",re)}
+   }
+   if e==nil{
+    if cfg.Workflow==""||cfg.TemplateNode==""||cfg.PhotoNode==""||cfg.PromptNode==""{
+     e=fmt.Errorf("qwen_face_config.json requires workflow, template_node, photo_node and prompt_node")
+    }else{
+     workflow:=cfg.Workflow
+     if !filepath.IsAbs(workflow){workflow=filepath.Join(dir,workflow)}
+     if _,se:=os.Stat(workflow);se!=nil{e=fmt.Errorf("Qwen workflow missing: %s: %w",workflow,se)}else{
+      home,he:=os.UserHomeDir();if he!=nil{e=he}else{
+       folder:=filepath.Join(home,"Documents","CAWForge","FaceTextures")
+       if e=os.MkdirAll(folder,0755);e==nil{
+        out=filepath.Join(folder,fmt.Sprintf("Qwen_Face_EXPERIMENTAL_%d.png",time.Now().UnixNano()))
+        prompt:="Edit the supplied WWE 2K26 face UV template using the supplied reference photo. Preserve the person's distinctive facial features, expression and natural skin detail. Remove hair, ears and hard photographic borders from the facial texture. Blend forehead, temples, cheeks, jaw and neck into a seamless skin surface. Keep the template layout and facial landmarks in place. Neutral frontal face, closed mouth, even lighting, no shadows or background."
+        args:=[]string{script,"--workflow",workflow,"--input",uv,"--reference",photo,"--input-node",cfg.TemplateNode,"--reference-node",cfg.PhotoNode,"--prompt-node",cfg.PromptNode,"--prompt",prompt,"--output",out,"--timeout","1200"}
+        if cfg.Server!=""{args=append(args,"--server",cfg.Server)}
+        ctx,cancel:=context.WithTimeout(context.Background(),21*time.Minute)
+        cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),args...)
+        cmd.Env=stableDiffusionEnv(dir)
+        logs,ce:=cmd.CombinedOutput();cancel()
+        if ce!=nil{e=fmt.Errorf("Qwen face generation failed: %v: %s",ce,strings.TrimSpace(string(logs)))}
+       }
       }
      }
     }
    }
   }
   matchMu.Lock()
-  if e!=nil{
-   faceTexturePreviewPath=""
-   faceTextureStatus="Face scan error: "+e.Error()
-   // The status label is narrow: show the complete traceback in a dialog.
-   // Post to the UI thread; never display a Win32 dialog from this worker.
-  }else{faceTexturePreviewPath=out;faceTextureStatus="820x820 face alignment PREVIEW: "+out+" | Not a game-ready UV texture; hair/ears and template calibration remain."}
+  if e!=nil{faceTexturePreviewPath="";faceTextureStatus="Qwen face error: "+e.Error()}else{
+   faceTexturePreviewPath=out
+   faceTextureStatus="Qwen face candidate saved: "+out+" | Experimental: inspect UV alignment and size before game use."
+  }
   matchMu.Unlock()
   textureBusy=false
   postMessage.Call(hwnd,WM_TEXTURE_DONE,0,0)
