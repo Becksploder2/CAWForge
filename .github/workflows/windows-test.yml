@@ -8,6 +8,8 @@ on:
       - 'sd_backend.py'
       - 'render_cutout.py'
       - 'face_scan_preview.py'
+      - 'qwen_backend.py'
+      - 'qwen_face_config.example.json'
       - 'sd_requirements.txt'
       - 'Setup-StableDiffusion.ps1'
       - 'Install-CAWForge-AI.cmd'
@@ -76,9 +78,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
           if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
-          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json','sd_backend.py','render_cutout.py','face_scan_preview.py','sd_requirements.txt','Setup-StableDiffusion.ps1','Install-CAWForge-AI.cmd','face_template_landmarks.json')) {
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','workflow_api.json','sd_backend.py','render_cutout.py','face_scan_preview.py','qwen_backend.py','qwen_face_config.example.json','sd_requirements.txt','Setup-StableDiffusion.ps1','Install-CAWForge-AI.cmd','face_template_landmarks.json')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
+          # Preserve an optional real workflow if a maintainer adds one to the repo.
+          if (Test-Path qwen_face_api.json) { Copy-Item qwen_face_api.json dist/CAWForge/ }
+          if (!(Test-Path dist/CAWForge/qwen_backend.py)) { throw 'Qwen face bridge missing from Windows package' }
+          if (!(Test-Path dist/CAWForge/qwen_face_config.example.json)) { throw 'Qwen configuration example missing from Windows package' }
           if (Test-Path models) { Copy-Item models dist/CAWForge/models -Recurse }
           Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
           if (Test-Path docs/stable-diffusion-setup.md) { Copy-Item docs/stable-diffusion-setup.md dist/CAWForge/Stable-Diffusion-Setup.md }
