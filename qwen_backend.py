@@ -44,6 +44,9 @@ def main():
     p.add_argument("--check",action="store_true")
     p.add_argument("--workflow")
     p.add_argument("--input")
+    p.add_argument("--reference",help="Optional second reference image, e.g. a face photo")
+    p.add_argument("--input-node",default="",help="LoadImage node ID for UV template")
+    p.add_argument("--reference-node",default="",help="LoadImage node ID for face photo")
     p.add_argument("--output")
     p.add_argument("--prompt",default="")
     p.add_argument("--prompt-node",default="")
@@ -64,17 +67,38 @@ def main():
     graph=json.loads(Path(a.workflow).read_text(encoding="utf-8"))
     if not isinstance(graph,dict) or not graph:
         raise SystemExit("Expected a ComfyUI API-format workflow JSON object")
-    image_nodes=[n for n in graph.values() if n.get("class_type")=="LoadImage"]
+    image_nodes={k:n for k,n in graph.items() if n.get("class_type")=="LoadImage"}
     save_nodes=[n for n in graph.values() if n.get("class_type")=="SaveImage"]
-    if len(image_nodes)!=1 or len(save_nodes)!=1:
-        raise SystemExit("Workflow must have exactly one LoadImage and one SaveImage node")
-    image_nodes[0]["inputs"]["image"]=upload_image(base,a.input)
-    if a.prompt_node:
-        if a.prompt_node not in graph or "text" not in graph[a.prompt_node].get("inputs",{}):
-            raise SystemExit("--prompt-node must identify a workflow node with a text input")
-        graph[a.prompt_node]["inputs"]["text"]=a.prompt
-    elif a.prompt:
-        raise SystemExit("Specify --prompt-node to safely inject text into the correct workflow node")
+    if not save_nodes:
+        raise SystemExit("Workflow needs a SaveImage node")
+    if a.reference:
+        if not a.input_node or not a.reference_node or a.input_node==a.reference_node:
+            raise SystemExit("Two-image editing requires distinct --input-node and --reference-node IDs")
+        if a.input_node not in image_nodes or a.reference_node not in image_nodes:
+            raise SystemExit("Specified input/reference IDs must be LoadImage nodes")
+        image_nodes[a.input_node]["inputs"]["image"]=upload_image(base,a.input)
+        image_nodes[a.reference_node]["inputs"]["image"]=upload_image(base,a.reference)
+    else:
+        if a.input_node:
+            if a.input_node not in image_nodes:
+                raise SystemExit("--input-node must identify a LoadImage node")
+            image_nodes[a.input_node]["inputs"]["image"]=upload_image(base,a.input)
+        elif len(image_nodes)==1:
+            next(iter(image_nodes.values()))["inputs"]["image"]=upload_image(base,a.input)
+        else:
+            raise SystemExit("Multiple LoadImage nodes: specify --input-node")
+    if a.prompt:
+        prompt_id=a.prompt_node
+        if not prompt_id:
+            candidates=[k for k,n in graph.items()
+                        if n.get("class_type") in ("CLIPTextEncode","TextEncodeQwenImageEdit")
+                        and isinstance(n.get("inputs",{}).get("text"),str)]
+            if len(candidates)!=1:
+                raise SystemExit("Set --prompt-node to the positive prompt text node ID")
+            prompt_id=candidates[0]
+        if prompt_id not in graph or not isinstance(graph[prompt_id].get("inputs",{}).get("text"),str):
+            raise SystemExit("--prompt-node must identify a workflow node with a literal text input")
+        graph[prompt_id]["inputs"]["text"]=a.prompt
     client=uuid.uuid4().hex
     queued=request_json(base+"/prompt",{"prompt":graph,"client_id":client})
     pid=queued["prompt_id"]
