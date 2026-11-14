@@ -48,6 +48,7 @@ def main():
     p.add_argument("--input-node",default="",help="LoadImage node ID for UV template")
     p.add_argument("--reference-node",default="",help="LoadImage node ID for face photo")
     p.add_argument("--output")
+    p.add_argument("--face-size",type=int,default=0)
     p.add_argument("--prompt",default="")
     p.add_argument("--prompt-node",default="")
     p.add_argument("--timeout",type=int,default=1200)
@@ -116,7 +117,19 @@ def main():
                         url=base+"/view?"+urlencode({"filename":img["filename"],"subfolder":img.get("subfolder",""),"type":"output"})
                         with urllib.request.urlopen(url,timeout=90) as resp:
                             Path(a.output).parent.mkdir(parents=True,exist_ok=True)
-                            Path(a.output).write_bytes(resp.read())
+                            data=resp.read()
+                            if a.face_size:
+                                from io import BytesIO
+                                from PIL import Image
+                                with Image.open(BytesIO(data)) as generated:
+                                    generated=generated.convert("RGBA")
+                                    if generated.width!=generated.height:
+                                        raise SystemExit("Qwen output is not square; refusing to distort face UV layout")
+                                    if generated.width!=a.face_size:
+                                        generated=generated.resize((a.face_size,a.face_size),Image.Resampling.LANCZOS)
+                                    generated.save(a.output,"PNG")
+                            else:
+                                Path(a.output).write_bytes(data)
                         print("Qwen experimental output:",a.output)
                         return
             raise SystemExit("Workflow finished without a saved output image")
