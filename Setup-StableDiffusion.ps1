@@ -21,7 +21,8 @@ if (-not $AIHome) {
   }
 }
 if (-not $AIHome) {
-  foreach ($letter in 'D'..'Z') {
+  foreach ($code in 68..90) {
+    $letter = [char]$code
     $candidate = "${letter}:\CAWForge-AI"
     if (Test-Path (Join-Path $candidate '.venv\Scripts\python.exe')) {
       $AIHome = $candidate
