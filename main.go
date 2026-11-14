@@ -616,7 +616,7 @@ func startTexture(){
        if e=os.MkdirAll(folder,0755);e==nil{
         out=filepath.Join(folder,fmt.Sprintf("Qwen_Face_EXPERIMENTAL_%d.png",time.Now().UnixNano()))
         prompt:="Edit the supplied WWE 2K26 face UV template using the supplied reference photo. Preserve the person's distinctive facial features, expression and natural skin detail. Remove hair, ears and hard photographic borders from the facial texture. Blend forehead, temples, cheeks, jaw and neck into a seamless skin surface. Keep the template layout and facial landmarks in place. Neutral frontal face, closed mouth, even lighting, no shadows or background."
-        args:=[]string{script,"--workflow",workflow,"--input",uv,"--reference",photo,"--input-node",cfg.TemplateNode,"--reference-node",cfg.PhotoNode,"--prompt-node",cfg.PromptNode,"--prompt",prompt,"--output",out,"--timeout","1200"}
+        args:=[]string{script,"--workflow",workflow,"--input",uv,"--reference",photo,"--input-node",cfg.TemplateNode,"--reference-node",cfg.PhotoNode,"--prompt-node",cfg.PromptNode,"--prompt",prompt,"--output",out,"--face-size","820","--timeout","1200"}
         if cfg.Server!=""{args=append(args,"--server",cfg.Server)}
         ctx,cancel:=context.WithTimeout(context.Background(),21*time.Minute)
         cmd:=exec.CommandContext(ctx,stableDiffusionPython(dir),args...)
