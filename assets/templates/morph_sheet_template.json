@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "name": "Head",
+      "items": [
+        "Head Width",
+        "Head Height",
+        "Head Depth"
+      ]
+    },
+    {
+      "name": "Ears Top",
+      "items": [
+        "Offset",
+        "Height",
+        "Alignment"
+      ]
+    },
+    {
+      "name": "Ears",
+      "items": [
+        "Ears Width",
+        "Ears Height",
+        "Vertical Stretch",
+        "Placement Low/High",
+        "Placement Forward/Back"
+      ]
+    },
+    {
+      "name": "Earlobes",
+      "items": [
+        "Lobe Detachment",
+        "Lobe Length",
+        "Lobe Alignment"
+      ]
+    },
+    {
+      "name": "Forehead Upper",
+      "items": [
+        "Forehead Upper Size"
+      ]
+    },
+    {
+      "name": "Forehead",
+      "items": [
+        "Forehead Size"
+      ]
+    },
+    {
+      "name": "Eyebrows",
+      "items": [
+        "Eyebrow Length",
+        "Eyebrow Depth",
+        "Eyebrow Corner Height Left",
+        "Eyebrow Corner Height Right",
+        "Eyebrow Outer Height Left",
+        "Eyebrow Outer Height Right"
+      ]
+    },
+    {
+      "name": "Eyes",
+      "items": [
+        "Eye Length",
+        "Eye Socket Depth",
+        "Eye Corner Length",
+        "Eye Corner Height",
+        "Eye Outer Length",
+        "Eye Outer Height"
+      ]
+    },
+    {
+      "name": "Nose",
+      "items": [
+        "Nose Width",
+        "Nose Height",
+        "Nose Depth"
+      ]
+    },
+    {
+      "name": "Nose Bridge",
+      "items": [
+        "Nose Bridge Width",
+        "Nose Bridge Height",
+        "Nose Bridge Depth"
+      ]
+    },
+    {
+      "name": "Nose Tip",
+      "items": [
+        "Nose Tip Width",
+        "Tip Pointed or Rounded",
+        "Nose Tip Length",
+        "Tip Height"
+      ]
+    },
+    {
+      "name": "Nostrils",
+      "items": [
+        "Left Nostril Width",
+        "Left Nostril Height",
+        "Left Nostril Depth",
+        "Right Nostril Width",
+        "Right Nostril Height",
+        "Right Nostril Depth"
+      ]
+    },
+    {
+      "name": "Philtrum",
+      "items": [
+        "Philtrum Width",
+        "Philtrum Depth"
+      ]
+    },
+    {
+      "name": "Mouth",
+      "items": [
+        "Mouth Horizontal Length",
+        "Mouth Fullness",
+        "Mouth Depth",
+        "Left Mouth Corner Length",
+        "Right Mouth Corner Length",
+        "Left Mouth Corner Height",
+        "Right Mouth Corner Height"
+      ]
+    },
+    {
+      "name": "Cheekbones",
+      "items": [
+        "Upper Cheekbone",
+        "Middle Cheekbone",
+        "Lower Cheekbone"
+      ]
+    },
+    {
+      "name": "Cheeks",
+      "items": [
+        "Cheek Fullness",
+        "Cheek Height"
+      ]
+    },
+    {
+      "name": "Jawline",
+      "items": [
+        "Middle Jaw Fullness",
+        "Lower Jaw Height",
+        "Lower Jaw Depth",
+        "Rear Jaw Fullness",
+        "Lower Jaw Fullness",
+        "Lower Jaw Length"
+      ]
+    },
+    {
+      "name": "Chin",
+      "items": [
+        "Chin Width",
+        "Chin Height",
+        "Chin Forward/Back",
+        "Chin Vertical Placement"
+      ]
+    },
+    {
+      "name": "Parietal Region",
+      "items": [
+        "Parietal Region Size"
+      ]
+    }
+  ]
+}
