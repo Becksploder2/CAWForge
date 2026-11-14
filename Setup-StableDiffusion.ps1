@@ -23,8 +23,10 @@ if (-not $AIHome) {
 if (-not $AIHome) {
   foreach ($code in 68..90) {
     $letter = [char]$code
-    $candidate = "${letter}:\CAWForge-AI"
-    if (Test-Path (Join-Path $candidate '.venv\Scripts\python.exe')) {
+    $driveRoot = "${letter}:\"
+    if (-not (Test-Path -LiteralPath $driveRoot -ErrorAction SilentlyContinue)) { continue }
+    $candidate = Join-Path $driveRoot 'CAWForge-AI'
+    if (Test-Path -LiteralPath (Join-Path $candidate '.venv\Scripts\python.exe') -ErrorAction SilentlyContinue) {
       $AIHome = $candidate
       Write-Host "Found existing AI installation: $AIHome" -ForegroundColor Green
       break
