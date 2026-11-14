@@ -108,6 +108,47 @@ def remove_blue_backdrop_leak(image):
     return Image.fromarray(rgba,"RGBA")
 
 
+
+def decontaminate_blue_edge(image):
+    """Remove blue backdrop RGB from translucent subject boundaries.
+
+    Only pixels with partial alpha and an unusually blue cast compared to
+    nearby opaque subject pixels are modified. Opaque blue attire is preserved.
+    """
+    rgba=np.array(image.convert("RGBA"),dtype=np.uint8,copy=True)
+    rgb=rgba[:,:,:3].astype(np.float32)
+    alpha=rgba[:,:,3]
+    solid=(alpha>=245).astype(np.uint8)
+    if not np.any(solid):
+        return image
+    # Inpaint only the colors, using the nearest opaque subject colors as
+    # references; do not change the actual silhouette/alpha.
+    # Dilate reliable subject colors into the translucent edge, one pixel
+    # at a time. This avoids requiring an additional Python dependency.
+    nearby=rgb.copy()
+    known=solid.copy()
+    kernel=np.ones((3,3),np.uint8)
+    for _ in range(24):
+        if not np.any((known==0)&(alpha>0)):
+            break
+        sums=cv2.boxFilter(nearby*known[:,:,None],-1,(3,3),normalize=False)
+        counts=cv2.boxFilter(known.astype(np.float32),-1,(3,3),normalize=False)
+        fill=(known==0)&(counts>0)
+        nearby[fill]=sums[fill]/counts[fill,None]
+        known[fill]=1
+    # For very wide fringe, use the original colors rather than inventing RGB.
+    partial=(alpha>=8)&(alpha<245)
+    blue_excess=rgb[:,:,2]-np.maximum(rgb[:,:,0],rgb[:,:,1])
+    nearby_blue_excess=nearby[:,:,2]-np.maximum(nearby[:,:,0],nearby[:,:,1])
+    suspect=partial&(blue_excess>22)&((blue_excess-nearby_blue_excess)>25)
+    # Blend more strongly as alpha decreases; retain edge detail otherwise.
+    mix=np.clip((245-alpha.astype(np.float32))/185.0,0.35,1.0)
+    mix=(mix*suspect)[:,:,None]
+    rgb=rgb*(1-mix)+nearby*mix
+    rgba[:,:,:3]=np.uint8(np.clip(rgb,0,255))
+    return Image.fromarray(rgba,"RGBA")
+
+
 def material_detail(image, strength):
     """Selective luminance finishing from existing pixels, without synthesis."""
     if strength<=0:
@@ -226,6 +267,7 @@ def main():
         output=source.copy()
         output.putalpha(Image.fromarray(mask,"L"))
     output=remove_blue_backdrop_leak(output)
+    output=decontaminate_blue_edge(output)
     # Identity-safe photographic finishing: deterministic, local and non-generative.
     # Keep alpha and silhouette unchanged; only refine original RGB.
     level=max(0,min(100,args.realism))/100
