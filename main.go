@@ -1503,7 +1503,7 @@ var morphSheetSections=[]struct{name string;items []string}{
  {"Earlobes",[]string{"Lobe Detachment","Lobe Length","Lobe Alignment"}},
  {"Forehead Upper",[]string{"Forehead Upper Size"}},
  {"Forehead",[]string{"Forehead Size"}},
- {"Eyebrows",[]string{"Eyebrow Length","Eyebrow Depth","Eyebrow Corner Height Left","Eyebrow Corner Height Right","Eyebrow Outer Height Left","Eyebrow Outer Height Right"}},
+ {"Eyebrows",[]string{"Length","Depth","Left Corner Length","Left Corner Height","Right Corner Length","Right Corner Height","Left Outer Brow Depth","Left Outer Brow Height","Right Outer Brow Depth","Right Outer Brow Height"}},
  {"Eyes",[]string{"Eye Length","Eye Socket Depth","Eye Corner Length","Eye Corner Height","Eye Outer Length","Eye Outer Height"}},
  {"Nose",[]string{"Nose Width","Nose Height","Nose Depth"}},
  {"Nose Bridge",[]string{"Nose Bridge Width","Nose Bridge Height","Nose Bridge Depth"}},
