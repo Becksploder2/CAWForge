@@ -1,0 +1,7 @@
+{
+  "workflow": "qwen_face_api.json",
+  "server": "http://127.0.0.1:8188",
+  "template_node": "REPLACE_WITH_UV_LOADIMAGE_NODE_ID",
+  "photo_node": "REPLACE_WITH_PHOTO_LOADIMAGE_NODE_ID",
+  "prompt_node": "REPLACE_WITH_POSITIVE_PROMPT_NODE_ID"
+}

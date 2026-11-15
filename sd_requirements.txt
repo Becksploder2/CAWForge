@@ -1,0 +1,6 @@
+diffusers>=0.30,<0.37
+transformers>=4.44,<5
+accelerate>=0.33,<2
+safetensors>=0.4,<1
+Pillow>=10,<13
+huggingface_hub>=0.25,<1
