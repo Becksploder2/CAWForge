@@ -156,6 +156,71 @@ func rosterSave()error{
  tmp:=p+".tmp";if e=os.WriteFile(tmp,b,0600);e!=nil{return e}
  if e=os.Rename(tmp,p);e!=nil{os.Remove(tmp);return e};rosterEditing=name;return rosterRefresh()
 }
+
+// Import WWA roster exports from ChatGPT without giving the application access
+// to private chat data. First click previews changes; second click applies.
+var rosterImportPreviewHash string
+func rosterImportWWA()error{
+ home,e:=os.UserHomeDir();if e!=nil{return e}
+ source:=filepath.Join(home,"Documents","CAWForge","wwa_roster_import.json")
+ raw,e:=os.ReadFile(source);if e!=nil{return fmt.Errorf("put wwa_roster_import.json in Documents\\CAWForge: %w",e)}
+ var incoming []RosterEntry
+ if e=json.Unmarshal(raw,&incoming);e!=nil{
+  var wrapped struct{Wrestlers []RosterEntry `json:"wrestlers"`}
+  if e2:=json.Unmarshal(raw,&wrapped);e2!=nil||wrapped.Wrestlers==nil{return fmt.Errorf("expected JSON array or {\\\"wrestlers\\\":[...]}: %w",e)}
+  incoming=wrapped.Wrestlers
+ }
+ if len(incoming)==0{return fmt.Errorf("import contains no wrestlers")}
+ seen:=map[string]bool{}
+ for _,v:=range incoming{
+  name:=strings.TrimSpace(v.Name);key:=strings.ToLower(name)
+  if name==""||seen[key]{return fmt.Errorf("empty or duplicate wrestler name in import: %q",name)}
+  seen[key]=true
+ }
+ existing,e:=rosterRead();if e!=nil{return e}
+ index:=map[string]int{}
+ for i,v:=range existing{index[strings.ToLower(strings.TrimSpace(v.Name))]=i}
+ added,updated,unchanged:=0,0,0
+ merged:=append([]RosterEntry(nil),existing...)
+ for _,v:=range incoming{
+  v.Name=strings.TrimSpace(v.Name)
+  key:=strings.ToLower(v.Name)
+  if i,ok:=index[key];ok{
+   old:=merged[i]
+   // Blank import fields never erase local edits. Mugshots always stay local.
+   if strings.TrimSpace(v.Picbase)!=""{old.Picbase=v.Picbase}
+   if strings.TrimSpace(v.Alignment)!=""{old.Alignment=v.Alignment}
+   if strings.TrimSpace(v.Group)!=""{old.Group=v.Group}
+   if old==merged[i]{unchanged++}else{updated++}
+   merged[i]=old
+  }else{
+   v.Mugshot="" // never accept arbitrary external filesystem paths
+   merged=append(merged,v);index[key]=len(merged)-1;added++
+  }
+ }
+ digest:=fmt.Sprintf("%x",sha256.Sum256(raw))
+ if rosterImportPreviewHash!=digest{
+  rosterImportPreviewHash=digest
+  set(341,fmt.Sprintf("WWA preview: %d new, %d updated, %d unchanged. Review JSON; click Import WWA JSON again to apply.",added,updated,unchanged))
+  return nil
+ }
+ rosterImportPreviewHash=""
+ target,e:=rosterPath();if e!=nil{return e}
+ if e=os.MkdirAll(filepath.Dir(target),0755);e!=nil{return e}
+ if old,e:=os.ReadFile(target);e==nil{
+  backup:=target+".backup-"+time.Now().Format("20060102-150405")
+  if e=os.WriteFile(backup,old,0600);e!=nil{return fmt.Errorf("backup failed; import cancelled: %w",e)}
+ }else if !os.IsNotExist(e){return e}
+ sort.Slice(merged,func(i,j int)bool{return strings.ToLower(merged[i].Name)<strings.ToLower(merged[j].Name)})
+ data,e:=json.MarshalIndent(merged,"","  ");if e!=nil{return e}
+ tmp:=target+".import.tmp"
+ if e=os.WriteFile(tmp,data,0600);e!=nil{return e}
+ if e=os.Rename(tmp,target);e!=nil{os.Remove(tmp);return e}
+ if e=rosterRefresh();e!=nil{return e}
+ set(341,fmt.Sprintf("WWA imported: %d new, %d updated, %d unchanged. Existing mugshots preserved.",added,updated,unchanged))
+ return nil
+}
+
 var rosterPage int
 var rosterEditing string
 var rosterMugshotPicker bool
@@ -1801,7 +1866,7 @@ case WM_COMMAND:
   sel,_,_:=send.Call(ctrls[401],CB_GETCURSEL,0,0)
   if sel<6{themeIndex=int(sel);loadTheme()}else if themeCustomPath!=""{themeIndex=6;loadTheme()}else{themePicker=true;beginPicker(false)}
  }
- case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==368:attireImportPicker=true;beginPicker(false);case id==369:startImportedSeamTest();case id==365:beginTextureSave(5);case id==372:singletMode=!singletMode;if singletMode{set(372,"Mode: Singlet (click for Full Body)")}else{set(372,"Mode: Full Body (click for Singlet)")};case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id>=384&&id<=387:if e:=rosterGallerySelect(id-384);e!=nil{set(341,e.Error())};case id==388:rosterPage--;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==390:rosterPage++;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==391:if txt(331)==""{set(341,"Select a CAW first")}else{rosterEditing=txt(331);set(341,"Editing "+rosterEditing+" — change fields then Save / Update.")};case id==392:rosterMugshotPicker=true;beginPicker(false);case id==344:if e:=rosterViewSelected();e!=nil{set(341,"View failed: "+e.Error())};case id==346:if e:=rosterRefresh();e!=nil{set(341,"Refresh failed: "+e.Error())};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==221:installOrRepairAI();case id==220:alert("FACE TEXTURE GUIDE\\n\\n1. Use a high-resolution straight-on photo, eyes open, neutral mouth, even light. Avoid filters, harsh shadows and hair over the face.\\n\\n2. Choose the correct in-game face template and prepare the face morph BEFORE applying a texture.\\n\\n3. The required output is an 820 x 820 flat UV face texture: no hair, ears, jewelry, clothing or background, with skin blended around the edges.\\n\\n4. CAWForge cannot currently extract this accurately. Both old portrait-generation buttons are disabled until face segmentation and calibrated template alignment are implemented.\\n\\n5. Do not import the old Tiffany-style portrait into WWE 2K26; it is not a valid face UV texture.");case id==217:beginPicker(false);case id==222:faceTemplatePicker=true;beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
+ case id==605:installDownloadedUpdate();case id==604:launchAIStudio();case id==600:checkUpdates();case id==602:downloadUpdate();case id==603:openUpdateFolder();case id==200:switchTab(0);case id==300:switchTab(2);case id==320:switchTab(3);case id==350:switchTab(5);case id==355:startBodyTexture();case id==368:attireImportPicker=true;beginPicker(false);case id==369:startImportedSeamTest();case id==365:beginTextureSave(5);case id==372:singletMode=!singletMode;if singletMode{set(372,"Mode: Singlet (click for Full Body)")}else{set(372,"Mode: Full Body (click for Singlet)")};case id==366:beginTextureSave(1);case id==367:beginTextureSave(2);case id==362:set(361,"20");case id==363:set(361,"50");case id==364:set(361,"85");case id==358:bodyPickerTarget=352;beginPicker(false);case id==359:bodyPickerTarget=353;beginPicker(false);case id==330:switchTab(4);case id==339:if e:=rosterSave();e!=nil{set(341,"Save failed: "+e.Error())}else{set(341,"Roster record saved to Documents/CAWForge/roster.json")};case id>=384&&id<=387:if e:=rosterGallerySelect(id-384);e!=nil{set(341,e.Error())};case id==388:rosterPage--;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==390:rosterPage++;if e:=rosterRefresh();e!=nil{set(341,e.Error())};case id==391:if txt(331)==""{set(341,"Select a CAW first")}else{rosterEditing=txt(331);set(341,"Editing "+rosterEditing+" — change fields then Save / Update.")};case id==392:rosterMugshotPicker=true;beginPicker(false);case id==344:if e:=rosterViewSelected();e!=nil{set(341,"View failed: "+e.Error())};case id==393:if e:=rosterImportWWA();e!=nil{set(341,"WWA import: "+e.Error())};case id==346:if e:=rosterRefresh();e!=nil{set(341,"Refresh failed: "+e.Error())};case id==340:if e:=rosterLoad();e!=nil{set(341,"Load failed: "+e.Error())}else{set(341,"Roster record loaded")};case id==321:beginPicker(false);case id==323:startRenderCutout();case id==307:startGraphic();case id==308:seamAuto=!seamAuto;set(308,fmt.Sprintf("Auto Seam Connect: %v",seamAuto));case id==309:seamTop=!seamTop;set(309,fmt.Sprintf("Top sides: %v",seamTop));case id==310:seamTights=!seamTights;set(310,fmt.Sprintf("Tights leg sides: %v",seamTights));case id==311:seamWaist=!seamWaist;set(311,fmt.Sprintf("Waistband: %v",seamWaist));case id==202:switchTab(1);case id==201:startTexture();case id==216:runAITexture();case id==221:installOrRepairAI();case id==220:alert("FACE TEXTURE GUIDE\\n\\n1. Use a high-resolution straight-on photo, eyes open, neutral mouth, even light. Avoid filters, harsh shadows and hair over the face.\\n\\n2. Choose the correct in-game face template and prepare the face morph BEFORE applying a texture.\\n\\n3. The required output is an 820 x 820 flat UV face texture: no hair, ears, jewelry, clothing or background, with skin blended around the edges.\\n\\n4. CAWForge cannot currently extract this accurately. Both old portrait-generation buttons are disabled until face segmentation and calibrated template alignment are implemented.\\n\\n5. Do not import the old Tiffany-style portrait into WWE 2K26; it is not a valid face UV texture.");case id==217:beginPicker(false);case id==222:faceTemplatePicker=true;beginPicker(false);case id==13:sel,_,_:=send.Call(ctrls[13],CB_GETCURSEL,0,0);if sel==1{genderMode="F";gender="F"}else if sel==2{genderMode="M";gender="M"}else{genderMode="Auto"};set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();if imagePath!=""{matchPhoto()};set(41,"Template library mode: "+genderMode+". Auto currently uses the selected library; photo classifier not installed.");case id==113:genderMode="Auto";set(41,"Auto: photo-based gender recognition is not installed. Using selected template library; choose Female or Male to lock matching.");case id==1:genderMode="M";gender="M";send.Call(ctrls[13],CB_SETCURSEL,2,0);set(23,"M"+strconv.Itoa(template));updateMorphPreview();set(41,"Male library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==2:genderMode="F";gender="F";send.Call(ctrls[13],CB_SETCURSEL,1,0);set(23,"F"+strconv.Itoa(template));updateMorphPreview();set(41,"Female library selected. Matching requires installed reference images.");updateSheet();if imagePath!=""{matchPhoto()};case id==3:sel,_,_:=send.Call(ctrls[3],CB_GETCURSEL,0,0);if sel>=20{return 0};template=int(sel)+1;set(23,gender+strconv.Itoa(template));updateSheet();updateMorphPreview();case id==4:beginPicker(false);case id==5:exportMorphSheetAsync();case id==7:importTemplateImage();case id==9:beginCalibration();case id==10:matchPhoto();case id==11:gridPickerMode="M";beginPicker(false);case id==12:gridPickerMode="F";beginPicker(false);case id==8:exec.Command("rundll32.exe","url.dll,FileProtocolHandler","https://www.youtube.com/watch?v=WtWG9ZIxtes").Start();case id==6:for k:=range values{values[k]=50};drawGroup();case id>=50&&id<50+len(groups):active=groups[id-50].name;drawGroup()};case WM_HSCROLL:for i:=0;i<8;i++{if l==ctrls[110+i]{for _,g:=range groups{if g.name==active&&i<len(g.items){v,_,_:=send.Call(ctrls[110+i],TBM_GETPOS,0,0);values[g.name+" / "+g.items[i]]=int(v);set(120+i,strconv.Itoa(int(v)));scheduleSheetUpdate()}}}}};r,_,_:=def.Call(h,uintptr(m),w,l);return r}
 
 const currentVersion="v0.9.32"
 const releaseEndpoint="https://api.github.com/repos/Becksploder2/CAWForge/releases/latest"
@@ -2053,6 +2118,7 @@ func main(){
  ctl("COMBOBOX","",220,615,420,260,343,CBS_DROPDOWNLIST|WS_BORDER);
  ctl("BUTTON","View Selected",660,615,180,35,344,0);
  ctl("BUTTON","Refresh Roster",855,615,180,35,346,0);
+ ctl("BUTTON","Import WWA JSON",720,385,270,40,393,0);
  ctl("STATIC","0 wrestlers saved locally",30,655,300,25,345,0);
  ctl("BUTTON","Edit CAW",30,690,170,32,391,0);
  ctl("BUTTON","Add / Change Mugshot",215,690,240,32,392,0);
