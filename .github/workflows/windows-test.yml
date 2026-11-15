@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'main.go'
+      - 'qwen_backend.py'
+      - 'qwen_face_config.example.json'
+      - 'test_qwen_backend.py'
       - 'go.mod'
       - 'go.sum'
       - 'assets/**'
@@ -32,13 +35,18 @@ jobs:
           $env:GOARCH='amd64'
           $env:CGO_ENABLED='0'
           go build -ldflags="-H windowsgui" -o CAWForge_Studio_Windows.exe main.go
+      - name: Verify Qwen backend regression tests
+        shell: pwsh
+        run: |
+          python -m pip install Pillow
+          python -m unittest -v test_qwen_backend
       - name: Stage app and preserve template folders
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/CAWForge | Out-Null
           Copy-Item CAWForge_Studio_Windows.exe dist/CAWForge/
           if (Test-Path assets) { Copy-Item assets dist/CAWForge/assets -Recurse }
-          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe')) {
+          foreach ($file in @('viewer.html','ai_behavior_studio.html','WWE_2K26_Master_Prompt.txt','local-engine.exe','qwen_backend.py','qwen_face_config.example.json')) {
             if (Test-Path $file) { Copy-Item $file dist/CAWForge/ }
           }
           Write-Host 'Template packs are optional; users can add them to assets/templates locally.'
